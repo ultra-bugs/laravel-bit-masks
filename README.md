@@ -1,0 +1,261 @@
+# zuko/laravel-bit-masks
+
+Bitmask toolkit for Laravel — flag class generator, Eloquent integration, fluent query scopes and bit-level helpers.
+
+Store dozens of boolean flags in a single integer column (e.g. *"which networks is this email listed in?"* across 500M+ rows), and work with them through a clean, typed API instead of hand-rolled bitwise SQL.
+
+- ⚙️ **Generator** — `php artisan make:bitmask` scaffolds int-backed flag enums (or constants classes) with power-of-two values.
+- 🧩 **Eloquent trait** — declare your mask columns once; casting, helpers and query scopes are wired automatically.
+- 🔍 **Fluent scopes** — `whereMaskHas`, `whereMaskHasAny`, `whereMaskMissing`, `whereMaskEquals` (+ `orWhere*` variants).
+- 🛠 **Value object** — immutable `BitMask` with `has / add / remove / toggle / intersect / diff / names ...`.
+- 📦 **Collections** — the same filters, in-memory, on Eloquent collections or plain collections.
+
+## Requirements
+
+- PHP 8.2+
+- Laravel 11 or 12
+
+## Installation
+
+```bash
+composer require zuko/laravel-bit-masks
+```
+
+The service provider is auto-discovered.
+
+> **In-repo (monorepo) usage:** while the package lives under `packages/zuko/laravel-bit-masks`, it is loaded through `wikimedia/composer-merge-plugin` (see the root `composer.json`) and its service provider is registered by the host application (here: the Core module). Run `composer dump-autoload` after pulling.
+
+## Quick start
+
+**1. Generate a flag enum:**
+
+```bash
+php artisan make:bitmask Network --flags="gmail,yahoo,outlook,hotmail"
+```
+
+```php
+// app/BitMasks/Network.php
+enum Network: int
+{
+    use BitMaskFlags;
+
+    case Gmail = 1 << 0;
+    case Yahoo = 1 << 1;
+    case Outlook = 1 << 2;
+    case Hotmail = 1 << 3;
+}
+```
+
+**2. Add the column** (migration):
+
+```php
+Schema::create('subscribers', function (Blueprint $table) {
+    $table->id();
+    $table->string('email')->unique();
+    $table->bitMask('networks'); // unsignedBigInteger, default 0
+});
+```
+
+**3. Declare it on the model:**
+
+```php
+use Zuko\BitMasks\Concerns\HasBitMasks;
+
+class Subscriber extends Model
+{
+    use HasBitMasks;
+
+    protected $bitMasks = [
+        'networks' => Network::class, // bound to a flag enum
+        // 'toggles',                 // or a plain mask column
+    ];
+}
+```
+
+**4. Done — the whole API is live:**
+
+```php
+$s = Subscriber::first();
+
+$s->networks;                                  // BitMask instance
+$s->networks->names();                         // ['Gmail', 'Yahoo']
+$s->hasMask('networks', Network::Gmail);       // true
+$s->addMask('networks', Network::Outlook)->save();
+
+Subscriber::whereMaskHas('networks', Network::Gmail)->count();
+Subscriber::all()->whereMaskHasAny('networks', [Network::Yahoo, Network::Outlook]);
+```
+
+## The `BitMask` value object
+
+Immutable — every mutation returns a new instance. Anywhere a *flag* is accepted, you may pass an `int`, an int-backed enum case, another `BitMask`, or an (nested) iterable of those.
+
+```php
+use Zuko\BitMasks\BitMask;
+
+$mask = BitMask::from([Network::Gmail, Network::Yahoo]); // enum binding auto-detected
+$mask = BitMask::from(0b0101, Network::class);           // explicit binding
+$mask = BitMask::none();                                 // 0
+$mask = BitMask::all(Network::class);                    // every case set
+$mask = bitmask(5, Network::class);                      // global helper
+```
+
+| Method | Description |
+|---|---|
+| `value(): int` | Raw integer value |
+| `isEmpty(): bool` | No bit set |
+| `has(...$flags): bool` | **All** given flags present |
+| `hasAny(...$flags): bool` | **At least one** flag present |
+| `hasNone(...$flags): bool` | None of the flags present |
+| `equals($flags): bool` | Exact match |
+| `add(...$flags): self` | Set flags (OR) |
+| `remove(...$flags): self` | Unset flags (AND NOT) |
+| `toggle(...$flags): self` | Flip flags (XOR) |
+| `clear(): self` | Empty mask |
+| `intersect($flags): self` | Bits in both (AND) |
+| `union($flags): self` | Bits in either (OR) |
+| `diff($flags): self` | Bits here but not there |
+| `bits(): array` | Set bit positions, e.g. `[1, 3]` |
+| `values(): array` | Power-of-two components, e.g. `[2, 8]` |
+| `flags(): array` | Enum cases (when bound) or values |
+| `names(): array` | Enum case names (requires bound enum) |
+| `count(): int` | Number of set bits (`Countable`) |
+| `toBits(): string` | Binary string, e.g. `"1010"` |
+| `enum()` / `withEnum($class)` | Read / bind the flag enum |
+
+`BitMask::resolve(mixed): int` is the underlying normalizer — use it whenever you need a plain integer.
+
+Serialization: `json_encode($mask)` and `(string) $mask` both yield the integer value.
+
+## Flag enums — `BitMaskFlags`
+
+Generated enums ship with this trait; any int-backed enum can adopt it:
+
+```php
+Network::mask(Network::Gmail, Network::Yahoo); // BitMask(3), bound to Network
+Network::none();                               // empty BitMask
+Network::all();                                // every case set
+Network::fromMask(5);                          // [Network::Gmail, Network::Outlook]
+Network::Gmail->in($subscriber->networks);     // membership check
+Network::Yahoo->notIn(0b0101);                 // true
+```
+
+## Eloquent integration — `HasBitMasks`
+
+Declare mask columns via `$bitMasks` (plain names, or `column => FlagEnum::class`). The trait then:
+
+1. **Casts** each column to a `BitMask` (via `AsBitMask`), unless you declared your own cast.
+2. Adds **instance helpers** (mutations are in-memory; chain `->save()` to persist):
+
+```php
+$model->bitMask('networks');                    // BitMask (never null)
+$model->hasMask('networks', Network::Gmail);    // all flags present?
+$model->hasAnyMask('networks', ...$flags);      // any flag present?
+$model->missingMask('networks', ...$flags);     // none present?
+$model->addMask('networks', ...$flags);         // set flags
+$model->removeMask('networks', ...$flags);      // unset flags
+$model->toggleMask('networks', ...$flags);      // flip flags
+$model->setMask('networks', $flags);            // replace entirely
+$model->clearMask('networks');                  // reset to 0
+```
+
+3. Adds **query scopes** (portable across MySQL / PostgreSQL / SQLite):
+
+| Scope | SQL | Matches rows… |
+|---|---|---|
+| `whereMaskHas($col, $flags)` | `(col & m) = m` | with **all** flags |
+| `whereMaskHasAny($col, $flags)` | `(col & m) != 0` | with **any** flag |
+| `whereMaskMissing($col, $flags)` | `(col & m) = 0` | with **none** of the flags |
+| `whereMaskEquals($col, $flags)` | `col = m` | exact mask |
+
+Each has an `orWhere*` twin, and accepts an optional `$boolean` argument for manual grouping:
+
+```php
+Subscriber::whereMaskHas('networks', Network::Gmail)
+    ->orWhereMaskHas('networks', [Network::Yahoo, Network::Outlook])
+    ->get();
+```
+
+You can also assign masks naturally — the cast resolves anything flag-ish:
+
+```php
+$subscriber->networks = [Network::Gmail, Network::Hotmail];
+$subscriber->save(); // stored as 0b1001
+```
+
+### Setting attributes without the trait
+
+The cast is usable standalone:
+
+```php
+protected $casts = [
+    'networks' => AsBitMask::class,                  // plain
+    'networks' => AsBitMask::using(Network::class),  // enum-bound
+];
+```
+
+## Collections
+
+The scopes have in-memory twins, registered as `Collection` macros — they work on Eloquent collections of trait-using models **and** on plain collections of arrays/objects:
+
+```php
+$subscribers->whereMaskHas('networks', Network::Gmail);
+$subscribers->whereMaskHasAny('networks', [Network::Yahoo]);
+$subscribers->whereMaskMissing('networks', Network::Outlook);
+$subscribers->whereMaskEquals('networks', 0);
+
+collect([['mask' => 0b11], ['mask' => 0b01]])->whereMaskHas('mask', 0b10);
+```
+
+## Generator reference
+
+```bash
+php artisan make:bitmask {name}
+    {--flags=}        # comma-separated flag names: --flags="gmail,yahoo mail,out-look"
+    {--from-file=}    # file with one flag name per line
+    {--type=enum}     # "enum" (default) or "constants"
+    {--namespace=}    # default: App\BitMasks
+    {--path=}         # default: app/BitMasks
+    {--start=0}       # bit position of the first flag
+    {--force}         # overwrite existing file
+```
+
+Names are normalized into identifiers (`yahoo mail` → `YahooMail` / `YAHOO_MAIL`); duplicates and >63-bit overflows are rejected. `--start` lets you append new flags to an existing sequence without renumbering (generate a second class, or regenerate with the full list).
+
+`--type=constants` produces a plain class for codebases that prefer constants:
+
+```php
+final class Network
+{
+    public const GMAIL = 1 << 0;
+    public const YAHOO = 1 << 1;
+}
+```
+
+## Schema helper
+
+```php
+$table->bitMask('networks'); // = $table->unsignedBigInteger('networks')->default(0)
+```
+
+## Limits & querying at scale
+
+- One column holds **63 usable flags** (bit 63 is the sign bit on signed BIGINT engines). The generator enforces this; need more? Use a second mask column, or switch to a junction table — beyond ~64 dynamic flags a `(flag_id, row_id)` table with a composite index usually queries better.
+- `whereMaskHas`-style predicates can't use a plain B-tree index; on huge tables (hundreds of millions of rows) PostgreSQL **partial indexes** keep hot-flag queries fast:
+
+```sql
+CREATE INDEX idx_subscribers_net_5 ON subscribers (email) WHERE (networks & 32) != 0;
+```
+
+- Point lookups (`WHERE email = ?`) are unaffected — the mask rides along in the row.
+
+## Testing
+
+```bash
+composer install
+composer test
+```
+
+## License
+
+MIT © [Zuko](mailto:tansautn@gmail.com)
