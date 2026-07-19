@@ -34,3 +34,28 @@ if (! function_exists('bitmask')) {
         return BitMask::from($flags, $enum);
     }
 }
+
+if (! function_exists('bitmask_value')) {
+    /**
+     * Resolve any flag-ish value straight to its integer mask value.
+     * With a flag class given, flag NAMES resolve too — the string-to-int
+     * bridge for raw data work (imports, queues, APIs):
+     *
+     *   bitmask_value('gmail', Network::class);            // 1
+     *   bitmask_value(['gmail', 'yahoo'], Network::class); // 3
+     *   bitmask_value(Network::Gmail);                     // 1
+     *
+     * $class also accepts a constants class (make:bitmask --type=constants)
+     * when $flags is a single name.
+     *
+     * @param  class-string|null  $class
+     */
+    function bitmask_value(mixed $flags, ?string $class = null): int
+    {
+        if (is_string($flags) && ! ctype_digit($flags) && $class !== null && ! is_subclass_of($class, BackedEnum::class)) {
+            return \Zuko\BitMasks\Support\FlagName::value($class, $flags);
+        }
+
+        return BitMask::from($flags, $class)->value();
+    }
+}

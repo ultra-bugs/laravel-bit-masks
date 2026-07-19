@@ -37,9 +37,9 @@ class MakeBitMaskCommand extends Command
         {name : Class name for the generated flags (e.g. NetworkFlags)}
         {--flags= : Comma-separated flag names (e.g. "gmail,yahoo,outlook")}
         {--from-file= : Path to a file containing one flag name per line}
-        {--type=enum : Output type: "enum" (int-backed enum) or "constants" (final class)}
-        {--namespace= : Target namespace (default: App\\BitMasks)}
-        {--path= : Target directory (default: app/BitMasks)}
+        {--type= : Output type: "enum" (int-backed enum) or "constants" (final class)}
+        {--namespace= : Target namespace (default: config bit-masks.generator.namespace)}
+        {--path= : Target directory (default: config bit-masks.generator.path)}
         {--start=0 : Bit position assigned to the first flag}
         {--force : Overwrite the file if it already exists}';
 
@@ -55,10 +55,12 @@ class MakeBitMaskCommand extends Command
             return self::INVALID;
         }
 
+        $type = strtolower((string) ($this->option('type') ?: $this->generatorConfig('type', BitMaskClassBuilder::TYPE_ENUM)));
+
         $builder = new BitMaskClassBuilder(
             class: (string) $this->argument('name'),
-            namespace: trim((string) ($this->option('namespace') ?: 'App\\BitMasks'), '\\'),
-            type: strtolower((string) $this->option('type')),
+            namespace: trim((string) ($this->option('namespace') ?: $this->generatorConfig('namespace', 'App\\BitMasks')), '\\'),
+            type: $type,
             flags: $flags,
             startBit: (int) $this->option('start'),
         );
@@ -72,7 +74,7 @@ class MakeBitMaskCommand extends Command
             return self::INVALID;
         }
 
-        $directory = (string) ($this->option('path') ?: $this->laravel->path('BitMasks'));
+        $directory = $this->targetDirectory();
         $path = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $class . '.php';
 
         if (file_exists($path) && ! $this->option('force')) {
@@ -88,7 +90,7 @@ class MakeBitMaskCommand extends Command
         file_put_contents($path, $source);
 
         $this->components->info(sprintf('Bitmask %s [%s] created successfully (%d flags, bits %d..%d).',
-            $this->option('type'),
+            $type,
             $path,
             count($flags),
             (int) $this->option('start'),
@@ -96,6 +98,35 @@ class MakeBitMaskCommand extends Command
         ));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * A generator default from config/bit-masks.php, when the option is omitted.
+     */
+    protected function generatorConfig(string $key, ?string $default = null): ?string
+    {
+        $value = $this->laravel['config']->get('bit-masks.generator.' . $key, $default);
+
+        return $value === null ? null : (string) $value;
+    }
+
+    /**
+     * The directory generated files are written to: --path, else the configured
+     * default (relative paths resolve from the app base path), else app/BitMasks.
+     */
+    protected function targetDirectory(): string
+    {
+        $directory = (string) ($this->option('path') ?: $this->generatorConfig('path', ''));
+
+        if ($directory === '') {
+            return $this->laravel->path('BitMasks');
+        }
+
+        $isAbsolute = str_starts_with($directory, '/')
+            || str_starts_with($directory, '\\')
+            || preg_match('/^[A-Za-z]:[\/\\\\]/', $directory) === 1;
+
+        return $isAbsolute ? $directory : $this->laravel->basePath($directory);
     }
 
     /**

@@ -24,6 +24,7 @@ use InvalidArgumentException;
 use JsonSerializable;
 use LogicException;
 use Stringable;
+use Zuko\BitMasks\Support\FlagName;
 
 /**
  * Immutable value object representing a bitmask.
@@ -65,7 +66,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
             self::assertFlagEnum($enum);
         }
 
-        return new self(self::resolve($flags), $enum);
+        return new self(self::resolve($flags, $enum), $enum);
     }
 
     /**
@@ -95,9 +96,12 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      *
      * Accepts ints, numeric strings (as returned by some DB drivers),
      * int-backed enum cases, BitMask instances, null (=> 0) and iterables of
-     * any of those (OR-combined).
+     * any of those (OR-combined). When a flag enum is given, flag NAMES
+     * ('gmail', 'YAHOO_MAIL', 'yahoo mail') resolve too — see {@see FlagName}.
+     *
+     * @param  class-string<BackedEnum>|null  $enum
      */
-    public static function resolve(mixed $flags): int
+    public static function resolve(mixed $flags, ?string $enum = null): int
     {
         if ($flags === null) {
             return 0;
@@ -119,15 +123,23 @@ final class BitMask implements Countable, JsonSerializable, Stringable
             return self::assertNonNegative($flags);
         }
 
-        if (is_string($flags) && ctype_digit($flags)) {
-            return (int) $flags;
+        if (is_string($flags)) {
+            if (ctype_digit($flags)) {
+                return (int) $flags;
+            }
+
+            if ($enum !== null) {
+                return self::resolve(FlagName::resolve($enum, $flags));
+            }
+
+            throw new InvalidArgumentException(sprintf('Cannot resolve flag name [%s]: no flag enum is bound or provided.', $flags));
         }
 
         if (is_iterable($flags)) {
             $mask = 0;
 
             foreach ($flags as $flag) {
-                $mask |= self::resolve($flag);
+                $mask |= self::resolve($flag, $enum);
             }
 
             return $mask;
@@ -181,7 +193,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function has(mixed ...$flags): bool
     {
-        $mask = self::resolve($flags);
+        $mask = self::resolve($flags, $this->enum);
 
         return ($this->value & $mask) === $mask;
     }
@@ -191,7 +203,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function hasAny(mixed ...$flags): bool
     {
-        return ($this->value & self::resolve($flags)) !== 0;
+        return ($this->value & self::resolve($flags, $this->enum)) !== 0;
     }
 
     /**
@@ -207,7 +219,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function equals(mixed $flags): bool
     {
-        return $this->value === self::resolve($flags);
+        return $this->value === self::resolve($flags, $this->enum);
     }
 
     /**
@@ -215,7 +227,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function add(mixed ...$flags): self
     {
-        return new self($this->value | self::resolve($flags), $this->enum);
+        return new self($this->value | self::resolve($flags, $this->enum), $this->enum);
     }
 
     /**
@@ -223,7 +235,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function remove(mixed ...$flags): self
     {
-        return new self($this->value & ~self::resolve($flags), $this->enum);
+        return new self($this->value & ~self::resolve($flags, $this->enum), $this->enum);
     }
 
     /**
@@ -231,7 +243,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function toggle(mixed ...$flags): self
     {
-        return new self($this->value ^ self::resolve($flags), $this->enum);
+        return new self($this->value ^ self::resolve($flags, $this->enum), $this->enum);
     }
 
     /**
@@ -247,7 +259,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function intersect(mixed $flags): self
     {
-        return new self($this->value & self::resolve($flags), $this->enum);
+        return new self($this->value & self::resolve($flags, $this->enum), $this->enum);
     }
 
     /**
@@ -263,7 +275,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     public function diff(mixed $flags): self
     {
-        return new self($this->value & ~self::resolve($flags), $this->enum);
+        return new self($this->value & ~self::resolve($flags, $this->enum), $this->enum);
     }
 
     /**

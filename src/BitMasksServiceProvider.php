@@ -32,12 +32,21 @@ use Zuko\BitMasks\Console\MakeBitMaskCommand;
  */
 class BitMasksServiceProvider extends ServiceProvider
 {
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__ . '/../config/bit-masks.php', 'bit-masks');
+    }
+
     public function boot(): void
     {
         static::registerCollectionMacros();
         static::registerBlueprintMacros();
 
         if ($this->app->runningInConsole()) {
+            $this->publishes([
+                __DIR__ . '/../config/bit-masks.php' => $this->app->configPath('bit-masks.php'),
+            ], 'bit-masks-config');
+
             $this->commands([
                 MakeBitMaskCommand::class,
             ]);
@@ -48,36 +57,51 @@ class BitMasksServiceProvider extends ServiceProvider
      * Collection macros mirroring the query scopes, for in-memory filtering.
      *
      * Work on Eloquent collections (reading cast attributes) as well as plain
-     * collections of arrays/objects holding integer masks under $key.
+     * collections of arrays/objects holding integer masks under $key. Flag
+     * NAMES in $flags resolve against the enum bound to each item's mask.
      */
     public static function registerCollectionMacros(): void
     {
-        Collection::macro('whereMaskHas', function (string $key, mixed $flags) {
-            /** @var Collection $this */
-            $mask = BitMask::resolve($flags);
+        $resolve = static function (mixed $flags, mixed $value): array {
+            $enum = $value instanceof BitMask ? $value->enum() : null;
 
-            return $this->filter(static fn ($item) => (BitMask::resolve(data_get($item, $key)) & $mask) === $mask);
+            return [BitMask::resolve($value), BitMask::resolve($flags, $enum)];
+        };
+
+        Collection::macro('whereMaskHas', function (string $key, mixed $flags) use ($resolve) {
+            /** @var Collection $this */
+            return $this->filter(static function ($item) use ($key, $flags, $resolve) {
+                [$value, $mask] = $resolve($flags, data_get($item, $key));
+
+                return ($value & $mask) === $mask;
+            });
         });
 
-        Collection::macro('whereMaskHasAny', function (string $key, mixed $flags) {
+        Collection::macro('whereMaskHasAny', function (string $key, mixed $flags) use ($resolve) {
             /** @var Collection $this */
-            $mask = BitMask::resolve($flags);
+            return $this->filter(static function ($item) use ($key, $flags, $resolve) {
+                [$value, $mask] = $resolve($flags, data_get($item, $key));
 
-            return $this->filter(static fn ($item) => (BitMask::resolve(data_get($item, $key)) & $mask) !== 0);
+                return ($value & $mask) !== 0;
+            });
         });
 
-        Collection::macro('whereMaskMissing', function (string $key, mixed $flags) {
+        Collection::macro('whereMaskMissing', function (string $key, mixed $flags) use ($resolve) {
             /** @var Collection $this */
-            $mask = BitMask::resolve($flags);
+            return $this->filter(static function ($item) use ($key, $flags, $resolve) {
+                [$value, $mask] = $resolve($flags, data_get($item, $key));
 
-            return $this->filter(static fn ($item) => (BitMask::resolve(data_get($item, $key)) & $mask) === 0);
+                return ($value & $mask) === 0;
+            });
         });
 
-        Collection::macro('whereMaskEquals', function (string $key, mixed $flags) {
+        Collection::macro('whereMaskEquals', function (string $key, mixed $flags) use ($resolve) {
             /** @var Collection $this */
-            $mask = BitMask::resolve($flags);
+            return $this->filter(static function ($item) use ($key, $flags, $resolve) {
+                [$value, $mask] = $resolve($flags, data_get($item, $key));
 
-            return $this->filter(static fn ($item) => BitMask::resolve(data_get($item, $key)) === $mask);
+                return $value === $mask;
+            });
         });
     }
 

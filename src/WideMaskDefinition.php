@@ -20,6 +20,7 @@ namespace Zuko\BitMasks;
 
 use BackedEnum;
 use InvalidArgumentException;
+use Zuko\BitMasks\Support\FlagName;
 
 /**
  * Describes a single logical bitmask that spans one or more BIGINT storage
@@ -116,8 +117,9 @@ final class WideMaskDefinition
      * Resolve any flag-ish value into the global index it represents.
      *
      * Accepts int-backed enum cases and non-negative ints (both interpreted as
-     * global indices). Unlike {@see BitMask::resolve()}, a plain int here is a
-     * single flag index, not a combined power-of-two mask.
+     * global indices), plus flag NAMES when an enum is bound. Unlike
+     * {@see BitMask::resolve()}, a plain int here is a single flag index, not a
+     * combined power-of-two mask.
      */
     public function flagIndex(mixed $flag): int
     {
@@ -137,8 +139,16 @@ final class WideMaskDefinition
             return $flag;
         }
 
-        if (is_string($flag) && ctype_digit($flag)) {
-            return (int) $flag;
+        if (is_string($flag)) {
+            if (ctype_digit($flag)) {
+                return (int) $flag;
+            }
+
+            if ($this->enum !== null) {
+                return $this->flagIndex(FlagName::resolve($this->enum, $flag));
+            }
+
+            throw new InvalidArgumentException(sprintf('Cannot resolve flag name [%s] on wide mask [%s]: no flag enum is bound.', $flag, $this->name));
         }
 
         throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into a wide-mask flag index.', get_debug_type($flag)));
@@ -184,7 +194,7 @@ final class WideMaskDefinition
             return;
         }
 
-        if ($flags instanceof BackedEnum || is_int($flags) || (is_string($flags) && ctype_digit($flags))) {
+        if ($flags instanceof BackedEnum || is_int($flags) || is_string($flags)) {
             [$column, $bit] = $this->route($this->flagIndex($flags));
             $columns[$column] |= $bit;
 

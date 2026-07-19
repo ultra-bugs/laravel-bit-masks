@@ -62,10 +62,11 @@ Whatever the strategy, the model surface is identical: attribute access returns 
 - **`src/WideBitMask.php` + `src/WideMaskDefinition.php`** — one logical mask spanning N BIGINT columns (`name_1..name_N`). Flags are addressed by **global index** (`0..N*63-1`), not bit value: index `n` routes to column `n / 63`, bit `n % 63`. Mirrors the `BitMask` API.
 - **`src/FlagSet.php` + `src/PivotDefinition.php`** — flag membership as `(owner, flag_id)` junction-table rows; flag ids are arbitrary non-negative enum values, not bit positions. Mutations buffer on the model and flush on `->save()`.
 - **`src/Casts/AsBitMask.php`** — the Eloquent cast (`AsBitMask::class` plain, `AsBitMask::using(Enum::class)` bound). Usable standalone without the trait.
-- **`src/Concerns/BitMaskFlags.php`** — trait adopted by flag enums: `Enum::mask(...)`, `none()`, `all()`, `fromMask()`, `$case->in()/notIn()`.
+- **`src/Concerns/BitMaskFlags.php`** — trait adopted by flag enums: `Enum::mask(...)`, `none()`, `all()`, `fromMask()`, `fromName()/tryFromName()/valueOf()`, `$case->in()/notIn()`.
+- **`src/Support/FlagName.php`** — resolves flag NAMES (strings) to cases/values with forgiving matching (case-insensitive, separators ignored: `'yahoo mail'` → `YahooMail`); understands flag enums and `--type=constants` classes. Every `resolve`-style entry point (BitMask, WideMaskDefinition, FlagSet, cast, scopes, macros) accepts names whenever an enum is bound — numeric strings always stay numeric values.
 - **`src/BitMasksServiceProvider.php`** — registers the `make:bitmask` command, `Collection` macros (`whereMask*` in-memory twins of the query scopes, working on Eloquent and plain collections via `data_get`), and `Blueprint` macros (`bitMask`, `wideBitMask`, `flagPivot`). Macro registrars are public statics so tests can call them containerless.
-- **`src/Console/MakeBitMaskCommand.php` + `src/Support/BitMaskClassBuilder.php`** — the generator. The builder normalizes arbitrary names into identifiers, rejects duplicates and >63-bit overflow, and renders either an int-backed enum (default) or a constants class.
-- **`src/helpers.php`** — global `bitmask()` helper (autoloaded via composer `files`).
+- **`src/Console/MakeBitMaskCommand.php` + `src/Support/BitMaskClassBuilder.php`** — the generator. The builder normalizes arbitrary names into identifiers, rejects duplicates and >63-bit overflow, and renders either an int-backed enum (default) or a constants class. Defaults for `--namespace`/`--path`/`--type` come from `config/bit-masks.php` (`generator.*`, merged in `register()`, publishable via tag `bit-masks-config`); the builder itself stays config-free and pure.
+- **`src/helpers.php`** — global `bitmask()` and `bitmask_value()` helpers (autoloaded via composer `files`).
 
 ### Conventions
 

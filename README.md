@@ -97,7 +97,7 @@ Subscriber::all()->whereMaskHasAny('networks', [Network::Yahoo, Network::Outlook
 
 ## The `BitMask` value object
 
-Immutable — every mutation returns a new instance. Anywhere a *flag* is accepted, you may pass an `int`, an int-backed enum case, another `BitMask`, or an (nested) iterable of those.
+Immutable — every mutation returns a new instance. Anywhere a *flag* is accepted, you may pass an `int`, an int-backed enum case, another `BitMask`, an (nested) iterable of those — or, when a flag enum is bound, a flag **name** as a string (see [Flag names as strings](#flag-names-as-strings)).
 
 ```php
 use Zuko\BitMasks\BitMask;
@@ -132,7 +132,7 @@ $mask = bitmask(5, Network::class);                      // global helper
 | `toBits(): string` | Binary string, e.g. `"1010"` |
 | `enum()` / `withEnum($class)` | Read / bind the flag enum |
 
-`BitMask::resolve(mixed): int` is the underlying normalizer — use it whenever you need a plain integer.
+`BitMask::resolve(mixed, ?enum): int` is the underlying normalizer — use it whenever you need a plain integer. Passing the optional enum class also resolves flag names.
 
 Serialization: `json_encode($mask)` and `(string) $mask` both yield the integer value.
 
@@ -147,7 +147,44 @@ Network::all();                                // every case set
 Network::fromMask(5);                          // [Network::Gmail, Network::Outlook]
 Network::Gmail->in($subscriber->networks);     // membership check
 Network::Yahoo->notIn(0b0101);                 // true
+
+Network::fromName('gmail');                    // Network::Gmail (forgiving match)
+Network::tryFromName('telegram');              // null
+Network::valueOf('gmail');                     // 1 — name straight to int
 ```
+
+## Flag names as strings
+
+Whenever a flag enum is bound (or passed explicitly), plain string **names** are
+accepted anywhere flags are — value objects, model helpers, query scopes and
+collection macros. Matching is forgiving: case-insensitive, separators ignored —
+`'gmail'`, `'Gmail'`, `'YAHOO_MAIL'` and `'yahoo mail'` all resolve.
+
+```php
+$subscriber->addMask('networks', 'outlook')->save();
+$subscriber->hasMask('networks', 'gmail');
+$subscriber->networks = ['gmail', 'hotmail'];
+
+Subscriber::whereMaskHas('networks', 'gmail')->count();
+Subscriber::all()->whereMaskHasAny('networks', ['yahoo', 'outlook']);
+
+Network::mask('gmail', 'yahoo');       // BitMask(3)
+bitmask('gmail', Network::class);      // BitMask(1)
+```
+
+For raw data work (imports, queues, APIs) the direct string-to-int bridges:
+
+```php
+Network::valueOf('gmail');                        // 1
+bitmask_value('gmail', Network::class);           // 1
+bitmask_value(['gmail', 'yahoo'], Network::class); // 3
+bitmask_value('yahoo mail', NetworkConstants::class); // constants classes too
+```
+
+The resolver behind all of this is `Zuko\BitMasks\Support\FlagName`
+(`resolve` / `tryResolve` / `value` / `tryValue`), usable standalone and aware of
+both flag enums and `--type=constants` classes. Numeric strings (`'5'`) keep
+resolving as plain integer values, never as names.
 
 ## Eloquent integration — `HasBitMasks`
 
@@ -230,6 +267,9 @@ php artisan make:bitmask {name}
 ```
 
 Names are normalized into identifiers (`yahoo mail` → `YahooMail` / `YAHOO_MAIL`); duplicates and >63-bit overflows are rejected. `--start` lets you append new flags to an existing sequence without renumbering (generate a second class, or regenerate with the full list).
+
+`--namespace`, `--path` and `--type` fall back to the published config (see
+[Configuration](#configuration)) before the built-in defaults.
 
 `--type=constants` produces a plain class for codebases that prefer constants:
 
@@ -420,6 +460,23 @@ CREATE INDEX idx_subscribers_net_5 ON subscribers (email) WHERE (networks & 32) 
 ```
 
 - Point lookups (`WHERE email = ?`) are unaffected — the mask rides along in the row.
+
+## Configuration
+
+```bash
+php artisan vendor:publish --tag=bit-masks-config
+```
+
+`config/bit-masks.php` holds the generator defaults; each `make:bitmask` option
+still overrides its config value per invocation:
+
+```php
+'generator' => [
+    'namespace' => 'App\\BitMasks', // --namespace
+    'path'      => 'app/BitMasks',  // --path (relative to base_path())
+    'type'      => 'enum',          // --type: 'enum' or 'constants'
+],
+```
 
 ## Testing
 

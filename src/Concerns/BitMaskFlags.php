@@ -19,6 +19,7 @@
 namespace Zuko\BitMasks\Concerns;
 
 use Zuko\BitMasks\BitMask;
+use Zuko\BitMasks\Support\FlagName;
 
 /**
  * Helpers for int-backed enums whose cases are power-of-two flag values.
@@ -71,6 +72,38 @@ trait BitMaskFlags
     public static function fromMask(mixed $mask): array
     {
         return BitMask::from($mask, static::class)->flags();
+    }
+
+    /**
+     * The case identified by the given flag name.
+     *
+     * Matching is forgiving (case-insensitive, separators ignored):
+     * 'gmail', 'Gmail', 'YAHOO_MAIL' and 'yahoo mail' all resolve.
+     *
+     * @throws \InvalidArgumentException when the name matches no case
+     */
+    public static function fromName(string $name): static
+    {
+        return FlagName::resolve(static::class, $name);
+    }
+
+    /**
+     * The case identified by the given flag name, or null when none matches.
+     */
+    public static function tryFromName(string $name): ?static
+    {
+        return FlagName::tryResolve(static::class, $name);
+    }
+
+    /**
+     * The integer value held by the named flag — the direct string-to-int
+     * bridge for raw data work: Network::valueOf('gmail') === 1.
+     *
+     * @throws \InvalidArgumentException when the name matches no case
+     */
+    public static function valueOf(string $name): int
+    {
+        return static::fromName($name)->value;
     }
 
     /**

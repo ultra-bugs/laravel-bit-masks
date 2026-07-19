@@ -64,11 +64,11 @@ class AsBitMask implements CastsAttributes, SerializesCastableAttributes
 
     public function set(Model $model, string $key, mixed $value, array $attributes): int
     {
-        return BitMask::resolve($value);
+        return BitMask::resolve($value, $this->enum);
     }
 
     public function serialize(Model $model, string $key, mixed $value, array $attributes): int
     {
-        return BitMask::resolve($value);
+        return BitMask::resolve($value, $this->enum);
     }
 }

@@ -439,7 +439,7 @@ trait HasBitMasks
             return $this;
         }
 
-        $this->setAttribute($column, BitMask::resolve($flags));
+        $this->setAttribute($column, BitMask::resolve($flags, $this->bitMaskColumns()[$column] ?? null));
 
         return $this;
     }
@@ -611,7 +611,7 @@ trait HasBitMasks
             return $this->whereWideMask($query, $definition, $flags, 'has', $boolean);
         }
 
-        $mask = BitMask::resolve($flags);
+        $mask = BitMask::resolve($flags, $this->bitMaskColumns()[$column] ?? null);
 
         return $query->whereRaw('(' . $this->bitMaskColumnSql($query, $column) . ' & ?) = ?', [$mask, $mask], $boolean);
     }
@@ -637,7 +637,7 @@ trait HasBitMasks
             return $this->whereWideMask($query, $definition, $flags, 'any', $boolean);
         }
 
-        return $query->whereRaw('(' . $this->bitMaskColumnSql($query, $column) . ' & ?) != 0', [BitMask::resolve($flags)], $boolean);
+        return $query->whereRaw('(' . $this->bitMaskColumnSql($query, $column) . ' & ?) != 0', [BitMask::resolve($flags, $this->bitMaskColumns()[$column] ?? null)], $boolean);
     }
 
     /**
@@ -661,7 +661,7 @@ trait HasBitMasks
             return $this->whereWideMask($query, $definition, $flags, 'missing', $boolean);
         }
 
-        return $query->whereRaw('(' . $this->bitMaskColumnSql($query, $column) . ' & ?) = 0', [BitMask::resolve($flags)], $boolean);
+        return $query->whereRaw('(' . $this->bitMaskColumnSql($query, $column) . ' & ?) = 0', [BitMask::resolve($flags, $this->bitMaskColumns()[$column] ?? null)], $boolean);
     }
 
     /**
@@ -685,7 +685,7 @@ trait HasBitMasks
             return $this->whereWideMask($query, $definition, $flags, 'equals', $boolean);
         }
 
-        return $query->where($query->qualifyColumn($column), '=', BitMask::resolve($flags), $boolean);
+        return $query->where($query->qualifyColumn($column), '=', BitMask::resolve($flags, $this->bitMaskColumns()[$column] ?? null), $boolean);
     }
 
     /**
