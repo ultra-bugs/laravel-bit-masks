@@ -1,5 +1,7 @@
 # zuko/laravel-bit-masks
 
+*Also have a [Tiếng Việt](README.vi.md) version of this README.*
+
 Bitmask toolkit for Laravel — flag class generator, Eloquent integration, fluent query scopes and bit-level helpers.
 
 Store dozens of boolean flags in a single integer column (e.g. *"which networks is this email listed in?"* across 500M+ rows), and work with them through a clean, typed API instead of hand-rolled bitwise SQL.
