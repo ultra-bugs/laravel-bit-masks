@@ -82,15 +82,28 @@ class BitMasksServiceProvider extends ServiceProvider
     }
 
     /**
-     * Schema helper: $table->bitMask('networks') — an unsigned BIGINT
-     * defaulting to 0 (64 flags per column, bit 63 reserved for the sign
-     * on engines that only store signed integers).
+     * Schema helpers:
+     *
+     *   $table->bitMask('toggles');             // one unsigned BIGINT default 0
+     *   $table->wideBitMask('networks', 2);     // networks_1, networks_2 (default 0)
+     *
+     * Each column stores 63 usable flags (bit 63 reserved for the sign on engines
+     * that only store signed integers), so a wide mask of N columns holds N × 63.
      */
     public static function registerBlueprintMacros(): void
     {
         Blueprint::macro('bitMask', function (string $column) {
             /** @var Blueprint $this */
             return $this->unsignedBigInteger($column)->default(0);
+        });
+
+        Blueprint::macro('wideBitMask', function (string $name, int $columns = 2) {
+            /** @var Blueprint $this */
+            for ($i = 1; $i <= $columns; $i++) {
+                $this->unsignedBigInteger($name . '_' . $i)->default(0);
+            }
+
+            return $this;
         });
     }
 }

@@ -9,11 +9,12 @@ Store dozens of boolean flags in a single integer column (e.g. *"which networks 
 - 🔍 **Fluent scopes** — `whereMaskHas`, `whereMaskHasAny`, `whereMaskMissing`, `whereMaskEquals` (+ `orWhere*` variants).
 - 🛠 **Value object** — immutable `BitMask` with `has / add / remove / toggle / intersect / diff / names ...`.
 - 📦 **Collections** — the same filters, in-memory, on Eloquent collections or plain collections.
+- 🧵 **Wide masks** — a single logical mask spanning several BIGINT columns, for **more than 63 flags** (e.g. 126 across two columns) without hand-juggling `networks_1` / `networks_2`.
 
 ## Requirements
 
 - PHP 8.2+
-- Laravel 11 or 12
+- Laravel 11, 12 or 13
 
 ## Installation
 
@@ -235,12 +236,82 @@ final class Network
 ## Schema helper
 
 ```php
-$table->bitMask('networks'); // = $table->unsignedBigInteger('networks')->default(0)
+$table->bitMask('networks');         // = $table->unsignedBigInteger('networks')->default(0)
+$table->wideBitMask('networks', 2);  // networks_1, networks_2 — two BIGINTs, default 0 (see Wide masks)
 ```
+
+## Wide masks — more than 63 flags
+
+One BIGINT holds 63 usable flags. When you need more (this package was built for
+*"which of 100+ networks is this email listed in?"*), a **wide mask** presents a
+single logical mask backed by several BIGINT columns — 63 flags each — so two
+columns give you 126 flags, three give 189, and so on.
+
+The distinction is in how flags are addressed. A single-column flag enum uses the
+**bit value** (`1 << n`); a wide-mask flag enum uses the **global index** (`0`,
+`1`, … `125`), because a mask past bit 62 can't fit in one PHP integer. Index `n`
+routes to column `n / 63`, bit `n % 63`.
+
+**1. Flag enum backed by global index:**
+
+```php
+enum Network: int
+{
+    case Gmail = 0;    // column 1, bit 0
+    case Yahoo = 1;
+    // …
+    case Proton = 63;  // column 2, bit 0  (the 64th flag)
+    case Icloud = 125; // column 2, bit 62 (the 126th flag)
+}
+```
+
+**2. Columns** — the `wideBitMask` blueprint macro creates `networks_1`, `networks_2`:
+
+```php
+Schema::create('emails', function (Blueprint $table) {
+    $table->string('email')->primary();
+    $table->wideBitMask('networks', 2); // networks_1, networks_2 (BIGINT default 0)
+});
+```
+
+**3. Declare it on the model** with an array value (vs. a bare enum for a single column):
+
+```php
+class Email extends Model
+{
+    use HasBitMasks;
+
+    protected $bitMasks = [
+        // 'columns' may be a count (derives networks_1..N) or an explicit list.
+        'networks' => ['columns' => 2, 'enum' => Network::class],
+    ];
+}
+```
+
+**4. Same API — the value is now a `WideBitMask`:**
+
+```php
+$email->networks = [Network::Gmail, Network::Proton]; // fans out to networks_1 & networks_2
+$email->networks;                                     // WideBitMask instance
+$email->networks->names();                            // ['Gmail', 'Proton']
+$email->hasMask('networks', Network::Icloud);         // false
+$email->addMask('networks', Network::Icloud)->save();
+
+Email::whereMaskHas('networks', Network::Icloud)->get();          // matched in the right column
+Email::whereMaskHasAny('networks', [Network::Gmail, Network::Proton])->get(); // OR across columns
+```
+
+The scopes emit per-column bitwise predicates automatically (`AND` across columns
+for `has` / `missing` / `equals`, `OR` for `hasAny`), all wrapped in a single
+grouped clause so they compose with `orWhere*` and your other conditions.
+
+`WideBitMask` mirrors `BitMask` (`has / hasAny / hasNone / equals / add / remove /
+toggle / clear / bits / flags / names / count`); `->columns()` returns the raw
+per-column integers, and `bits()` returns global indices.
 
 ## Limits & querying at scale
 
-- One column holds **63 usable flags** (bit 63 is the sign bit on signed BIGINT engines). The generator enforces this; need more? Use a second mask column, or switch to a junction table — beyond ~64 dynamic flags a `(flag_id, row_id)` table with a composite index usually queries better.
+- One column holds **63 usable flags** (bit 63 is the sign bit on signed BIGINT engines). The generator enforces this; need more? Reach for a [**wide mask**](#wide-masks--more-than-63-flags) (several BIGINT columns behind one logical name), or — beyond a few hundred *dynamic* flags — a `(flag_id, row_id)` junction table with a composite index usually queries better.
 - `whereMaskHas`-style predicates can't use a plain B-tree index; on huge tables (hundreds of millions of rows) PostgreSQL **partial indexes** keep hot-flag queries fast:
 
 ```sql
