@@ -24,7 +24,6 @@ composer require zuko/laravel-bit-masks
 
 The service provider is auto-discovered.
 
-> **In-repo (monorepo) usage:** while the package lives under `packages/zuko/laravel-bit-masks`, it is loaded through `wikimedia/composer-merge-plugin` (see the root `composer.json`) and its service provider is registered by the host application (here: the Core module). Run `composer dump-autoload` after pulling.
 
 ## Quick start
 
