@@ -105,5 +105,22 @@ class BitMasksServiceProvider extends ServiceProvider
 
             return $this;
         });
+
+        // Junction table for the pivot storage strategy. Adds the flag-id column,
+        // a composite primary key with the (already-defined) owner column, and a
+        // reverse index for "which owners carry flag X?" lookups.
+        //
+        //   Schema::create('email_tags', function (Blueprint $table) {
+        //       $table->string('email');       // owner column (type is yours)
+        //       $table->flagPivot('email');    // adds flag_id + keys/indexes
+        //   });
+        Blueprint::macro('flagPivot', function (string $ownerColumn, string $flagColumn = 'flag_id') {
+            /** @var Blueprint $this */
+            $this->unsignedBigInteger($flagColumn);
+            $this->primary([$ownerColumn, $flagColumn]);
+            $this->index([$flagColumn, $ownerColumn]);
+
+            return $this;
+        });
     }
 }

@@ -20,8 +20,11 @@ namespace Zuko\BitMasks\Concerns;
 
 use BackedEnum;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 use Zuko\BitMasks\BitMask;
 use Zuko\BitMasks\Casts\AsBitMask;
+use Zuko\BitMasks\FlagSet;
+use Zuko\BitMasks\PivotDefinition;
 use Zuko\BitMasks\WideBitMask;
 use Zuko\BitMasks\WideMaskDefinition;
 
@@ -29,44 +32,83 @@ use Zuko\BitMasks\WideMaskDefinition;
  * Eloquent integration for bitmask columns.
  *
  * Declare the mask columns on the model and the trait wires up everything
- * else (casting to {@see BitMask}, instance helpers and query scopes):
- *
- *   class Subscriber extends Model
- *   {
- *       use HasBitMasks;
- *
- *       protected $bitMasks = [
- *           'networks' => Network::class, // column bound to a flag enum
- *           'toggles',                    // plain mask column
- *       ];
- *   }
- *
- *   $subscriber->networks;                                   // BitMask instance
- *   $subscriber->hasMask('networks', Network::Gmail);        // bool
- *   $subscriber->addMask('networks', Network::Yahoo)->save();
- *   Subscriber::whereMaskHas('networks', Network::Gmail)->get();
- *
- * Wide masks — a single logical mask spanning several BIGINT columns, for more
- * than 63 flags — are declared with an array value:
+ * else (casting, instance helpers and query scopes). One `$bitMasks`
+ * declaration selects the storage strategy per attribute:
  *
  *   protected $bitMasks = [
- *       'networks' => ['columns' => 2, 'enum' => Network::class],
+ *       'networks' => Network::class,                            // single BIGINT column
+ *       'toggles',                                               // plain single column
+ *       'wide'     => ['columns' => 2, 'enum' => Network::class],// several BIGINT columns
+ *       'tags'     => ['pivot' => 'email_tags', 'enum' => Tag::class], // junction table
  *   ];
  *
- *   $email->networks = [Network::Gmail, Network::Foo]; // writes networks_1/networks_2
- *   $email->networks;                                  // WideBitMask instance
- *   Email::whereMaskHas('networks', Network::Foo)->get();
+ * Whichever the strategy, the SAME API applies:
+ *
+ *   $model->networks;                                // BitMask / WideBitMask / FlagSet
+ *   $model->hasMask('networks', Network::Gmail);     // bool
+ *   $model->addMask('networks', Network::Yahoo)->save();
+ *   Model::whereMaskHas('networks', Network::Gmail)->get();
+ *
+ * Bitmask/wide mutations live on the row and persist with the model's own
+ * ->save(). Pivot mutations are buffered and flushed to the junction table on
+ * ->save() too, so the "mutate then ->save()" contract holds across strategies
+ * (a pivot flush needs the owner key, so save the model at least once first).
  *
  * @mixin \Illuminate\Database\Eloquent\Model
  */
 trait HasBitMasks
 {
     /**
-     * Per-class cache of parsed definitions: ['single' => [...], 'wide' => [...]].
+     * Per-class cache of parsed definitions.
      *
-     * @var array<class-string, array{single: array<string, class-string<BackedEnum>|null>, wide: array<string, WideMaskDefinition>}>
+     * @var array<class-string, array{single: array<string, class-string<BackedEnum>|null>, wide: array<string, WideMaskDefinition>, pivot: array<string, PivotDefinition>}>
      */
     protected static array $bitMaskDefinitions = [];
+
+    /**
+     * Buffered pivot flag sets awaiting flush on the next ->save(), keyed by name.
+     *
+     * @var array<string, FlagSet>
+     */
+    protected array $pendingPivotFlags = [];
+
+    /**
+     * Per-instance cache of flag ids loaded from junction tables, keyed by name.
+     *
+     * @var array<string, list<int>>
+     */
+    protected array $loadedPivotIds = [];
+
+    /**
+     * Persist buffered pivot changes right after the row is saved.
+     *
+     * Overriding save() (rather than hooking the saved event) keeps flushing
+     * dispatcher-independent and correct under saveQuietly().
+     */
+    public function save(array $options = [])
+    {
+        $saved = parent::save($options);
+
+        if ($saved) {
+            $this->flushPendingPivotFlags();
+        }
+
+        return $saved;
+    }
+
+    /**
+     * Purge this model's junction rows when it is deleted.
+     */
+    public function delete()
+    {
+        $deleted = parent::delete();
+
+        if ($deleted !== false) {
+            $this->purgePivotFlags();
+        }
+
+        return $deleted;
+    }
 
     /**
      * Register the appropriate cast for every declared mask column.
@@ -112,11 +154,29 @@ trait HasBitMasks
     }
 
     /**
+     * Normalized map of declared pivot masks: ['name' => PivotDefinition].
+     *
+     * @return array<string, PivotDefinition>
+     */
+    public function pivotFlagDefinitions(): array
+    {
+        return $this->parsedBitMaskDefinitions()['pivot'];
+    }
+
+    /**
      * Whether the given name refers to a declared wide mask.
      */
     public function isWideBitMask(string $name): bool
     {
         return isset($this->parsedBitMaskDefinitions()['wide'][$name]);
+    }
+
+    /**
+     * Whether the given name refers to a declared pivot mask.
+     */
+    public function isPivotFlagMask(string $name): bool
+    {
+        return isset($this->parsedBitMaskDefinitions()['pivot'][$name]);
     }
 
     /**
@@ -128,9 +188,17 @@ trait HasBitMasks
     }
 
     /**
+     * The pivot definition for the given name, or null.
+     */
+    public function pivotFlagDefinition(string $name): ?PivotDefinition
+    {
+        return $this->parsedBitMaskDefinitions()['pivot'][$name] ?? null;
+    }
+
+    /**
      * Parse and cache the model's `$bitMasks` declaration once per class.
      *
-     * @return array{single: array<string, class-string<BackedEnum>|null>, wide: array<string, WideMaskDefinition>}
+     * @return array{single: array<string, class-string<BackedEnum>|null>, wide: array<string, WideMaskDefinition>, pivot: array<string, PivotDefinition>}
      */
     protected function parsedBitMaskDefinitions(): array
     {
@@ -140,26 +208,27 @@ trait HasBitMasks
 
         $single = [];
         $wide = [];
+        $pivot = [];
 
         foreach (property_exists($this, 'bitMasks') ? (array) $this->bitMasks : [] as $key => $value) {
             if (is_int($key)) {
                 $single[$value] = null;
             } elseif (is_array($value)) {
-                $wide[$key] = $this->makeWideDefinition($key, $value);
+                if (isset($value['pivot'])) {
+                    $pivot[$key] = $this->makePivotDefinition($key, $value);
+                } else {
+                    $wide[$key] = $this->makeWideDefinition($key, $value);
+                }
             } else {
                 $single[$key] = $value;
             }
         }
 
-        return static::$bitMaskDefinitions[static::class] = ['single' => $single, 'wide' => $wide];
+        return static::$bitMaskDefinitions[static::class] = ['single' => $single, 'wide' => $wide, 'pivot' => $pivot];
     }
 
     /**
      * Build a WideMaskDefinition from a model's array declaration.
-     *
-     * Accepts `'columns'` as an integer count (deriving `{name}_1..{name}_N`) or
-     * an explicit list of column names; an optional `'enum'` flag enum; and an
-     * optional `'bits'` per-column width.
      *
      * @param  array<string, mixed>  $config
      */
@@ -180,7 +249,33 @@ trait HasBitMasks
     }
 
     /**
-     * The flag enum bound to the given single-column mask, if any.
+     * Build a PivotDefinition from a model's array declaration.
+     *
+     * `pivot` names the junction table; `foreignPivotKey`, `flagKey` and
+     * `ownerKey` default to the model's foreign key, `flag_id`, and the model's
+     * primary key respectively.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    protected function makePivotDefinition(string $name, array $config): PivotDefinition
+    {
+        $ownerKey = $config['ownerKey'] ?? $this->getKeyName();
+
+        $foreignPivotKey = $config['foreignPivotKey']
+            ?? Str::snake(class_basename($this)) . '_' . $ownerKey;
+
+        return new PivotDefinition(
+            name: $name,
+            table: $config['pivot'],
+            foreignPivotKey: $foreignPivotKey,
+            flagKey: $config['flagKey'] ?? 'flag_id',
+            ownerKey: $ownerKey,
+            enum: $config['enum'] ?? null,
+        );
+    }
+
+    /**
+     * The flag enum bound to the given mask (single, wide or pivot), if any.
      *
      * @return class-string<BackedEnum>|null
      */
@@ -188,6 +283,10 @@ trait HasBitMasks
     {
         if (($definition = $this->wideBitMaskDefinition($column)) !== null) {
             return $definition->enum;
+        }
+
+        if (($pivot = $this->pivotFlagDefinition($column)) !== null) {
+            return $pivot->enum;
         }
 
         return $this->bitMaskColumns()[$column] ?? null;
@@ -206,25 +305,46 @@ trait HasBitMasks
      */
     public function wideBitMask(string $name): WideBitMask
     {
-        $definition = $this->wideBitMaskDefinition($name);
-
-        return WideBitMask::fromColumns($this->getAttributes(), $definition);
+        return WideBitMask::fromColumns($this->getAttributes(), $this->wideBitMaskDefinition($name));
     }
 
     /**
-     * Read wide masks as WideBitMask instances; everything else via Eloquent.
+     * Current value of a pivot mask as a FlagSet (never null).
+     *
+     * Reflects buffered (unsaved) changes when present, otherwise the flags
+     * stored in the junction table.
+     */
+    public function pivotFlagSet(string $name): FlagSet
+    {
+        $definition = $this->pivotFlagDefinition($name);
+
+        if (array_key_exists($name, $this->pendingPivotFlags)) {
+            return $this->pendingPivotFlags[$name];
+        }
+
+        return FlagSet::from($this->loadPivotIds($definition), $definition->enum);
+    }
+
+    /**
+     * Read wide/pivot masks as value objects; everything else via Eloquent.
      */
     public function getAttribute($key)
     {
-        if ($key !== null && $this->isWideBitMask($key)) {
-            return $this->wideBitMask($key);
+        if ($key !== null) {
+            if ($this->isWideBitMask($key)) {
+                return $this->wideBitMask($key);
+            }
+
+            if ($this->isPivotFlagMask($key)) {
+                return $this->pivotFlagSet($key);
+            }
         }
 
         return parent::getAttribute($key);
     }
 
     /**
-     * Fan a wide-mask assignment out to its storage columns; delegate otherwise.
+     * Fan wide masks out to storage columns and buffer pivot masks; delegate otherwise.
      */
     public function setAttribute($key, $value)
     {
@@ -234,6 +354,13 @@ trait HasBitMasks
             foreach ($wide->columns() as $column => $columnValue) {
                 parent::setAttribute($column, $columnValue);
             }
+
+            return $this;
+        }
+
+        if ($this->isPivotFlagMask($key)) {
+            $this->pendingPivotFlags[$key] = FlagSet::from($value, $this->pivotFlagDefinition($key)->enum);
+            unset($this->loadedPivotIds[$key]);
 
             return $this;
         }
@@ -306,6 +433,12 @@ trait HasBitMasks
             return $this;
         }
 
+        if ($this->isPivotFlagMask($column)) {
+            $this->setAttribute($column, $flags);
+
+            return $this;
+        }
+
         $this->setAttribute($column, BitMask::resolve($flags));
 
         return $this;
@@ -322,19 +455,147 @@ trait HasBitMasks
             return $this;
         }
 
+        if ($this->isPivotFlagMask($column)) {
+            $this->setAttribute($column, []);
+
+            return $this;
+        }
+
         $this->setAttribute($column, 0);
 
         return $this;
     }
 
     /**
-     * Current value of a mask column as a BitMask or WideBitMask.
+     * Persist buffered pivot changes to their junction tables.
      */
-    protected function maskValue(string $column): BitMask|WideBitMask
+    public function flushPendingPivotFlags(): void
     {
-        return $this->isWideBitMask($column)
-            ? $this->wideBitMask($column)
-            : $this->bitMask($column);
+        if ($this->pendingPivotFlags === []) {
+            return;
+        }
+
+        foreach ($this->pendingPivotFlags as $name => $set) {
+            $this->syncPivotFlags($this->pivotFlagDefinition($name), $set->ids());
+        }
+
+        $this->pendingPivotFlags = [];
+    }
+
+    /**
+     * Delete all junction rows for this model's pivot masks (on model delete).
+     */
+    public function purgePivotFlags(): void
+    {
+        foreach ($this->pivotFlagDefinitions() as $definition) {
+            $owner = $this->getAttribute($definition->ownerKey);
+
+            if ($owner !== null) {
+                $this->newPivotFlagQuery($definition)->where($definition->foreignPivotKey, $owner)->delete();
+            }
+        }
+
+        $this->pendingPivotFlags = [];
+        $this->loadedPivotIds = [];
+    }
+
+    /**
+     * Current value of a mask column as its value object.
+     */
+    protected function maskValue(string $column): BitMask|WideBitMask|FlagSet
+    {
+        if ($this->isWideBitMask($column)) {
+            return $this->wideBitMask($column);
+        }
+
+        if ($this->isPivotFlagMask($column)) {
+            return $this->pivotFlagSet($column);
+        }
+
+        return $this->bitMask($column);
+    }
+
+    /**
+     * Load (and cache) the flag ids stored for a pivot mask.
+     *
+     * @return list<int>
+     */
+    protected function loadPivotIds(PivotDefinition $definition): array
+    {
+        if (array_key_exists($definition->name, $this->loadedPivotIds)) {
+            return $this->loadedPivotIds[$definition->name];
+        }
+
+        $owner = $this->getAttribute($definition->ownerKey);
+
+        if ($owner === null) {
+            return $this->loadedPivotIds[$definition->name] = [];
+        }
+
+        $ids = $this->newPivotFlagQuery($definition)
+            ->where($definition->foreignPivotKey, $owner)
+            ->pluck($definition->flagKey)
+            ->map(static fn ($value) => (int) $value)
+            ->all();
+
+        sort($ids);
+
+        return $this->loadedPivotIds[$definition->name] = $ids;
+    }
+
+    /**
+     * Reconcile the junction table for a pivot mask to exactly $desired ids.
+     *
+     * @param  list<int>  $desired
+     */
+    protected function syncPivotFlags(PivotDefinition $definition, array $desired): void
+    {
+        $owner = $this->getAttribute($definition->ownerKey);
+
+        if ($owner === null) {
+            return;
+        }
+
+        $current = $this->newPivotFlagQuery($definition)
+            ->where($definition->foreignPivotKey, $owner)
+            ->pluck($definition->flagKey)
+            ->map(static fn ($value) => (int) $value)
+            ->all();
+
+        $toAdd = array_values(array_diff($desired, $current));
+        $toRemove = array_values(array_diff($current, $desired));
+
+        if ($toAdd === [] && $toRemove === []) {
+            $this->loadedPivotIds[$definition->name] = $desired;
+
+            return;
+        }
+
+        $this->getConnection()->transaction(function () use ($definition, $owner, $toAdd, $toRemove): void {
+            if ($toRemove !== []) {
+                $this->newPivotFlagQuery($definition)
+                    ->where($definition->foreignPivotKey, $owner)
+                    ->whereIn($definition->flagKey, $toRemove)
+                    ->delete();
+            }
+
+            if ($toAdd !== []) {
+                $this->newPivotFlagQuery($definition)->insert(array_map(
+                    static fn (int $id) => [$definition->foreignPivotKey => $owner, $definition->flagKey => $id],
+                    $toAdd
+                ));
+            }
+        });
+
+        $this->loadedPivotIds[$definition->name] = $desired;
+    }
+
+    /**
+     * A query builder over a pivot mask's junction table on this model's connection.
+     */
+    protected function newPivotFlagQuery(PivotDefinition $definition): \Illuminate\Database\Query\Builder
+    {
+        return $this->getConnection()->table($definition->table);
     }
 
     /**
@@ -342,6 +603,10 @@ trait HasBitMasks
      */
     public function scopeWhereMaskHas(Builder $query, string $column, mixed $flags, string $boolean = 'and'): Builder
     {
+        if (($pivot = $this->pivotFlagDefinition($column)) !== null) {
+            return $this->whereFlagPivot($query, $pivot, $flags, 'has', $boolean);
+        }
+
         if (($definition = $this->wideBitMaskDefinition($column)) !== null) {
             return $this->whereWideMask($query, $definition, $flags, 'has', $boolean);
         }
@@ -364,6 +629,10 @@ trait HasBitMasks
      */
     public function scopeWhereMaskHasAny(Builder $query, string $column, mixed $flags, string $boolean = 'and'): Builder
     {
+        if (($pivot = $this->pivotFlagDefinition($column)) !== null) {
+            return $this->whereFlagPivot($query, $pivot, $flags, 'any', $boolean);
+        }
+
         if (($definition = $this->wideBitMaskDefinition($column)) !== null) {
             return $this->whereWideMask($query, $definition, $flags, 'any', $boolean);
         }
@@ -384,6 +653,10 @@ trait HasBitMasks
      */
     public function scopeWhereMaskMissing(Builder $query, string $column, mixed $flags, string $boolean = 'and'): Builder
     {
+        if (($pivot = $this->pivotFlagDefinition($column)) !== null) {
+            return $this->whereFlagPivot($query, $pivot, $flags, 'missing', $boolean);
+        }
+
         if (($definition = $this->wideBitMaskDefinition($column)) !== null) {
             return $this->whereWideMask($query, $definition, $flags, 'missing', $boolean);
         }
@@ -404,6 +677,10 @@ trait HasBitMasks
      */
     public function scopeWhereMaskEquals(Builder $query, string $column, mixed $flags, string $boolean = 'and'): Builder
     {
+        if (($pivot = $this->pivotFlagDefinition($column)) !== null) {
+            return $this->whereFlagPivot($query, $pivot, $flags, 'equals', $boolean);
+        }
+
         if (($definition = $this->wideBitMaskDefinition($column)) !== null) {
             return $this->whereWideMask($query, $definition, $flags, 'equals', $boolean);
         }
@@ -464,6 +741,70 @@ trait HasBitMasks
                 $group->whereRaw('1 = 0');
             }
         }, null, null, $boolean);
+    }
+
+    /**
+     * Emit a correlated EXISTS predicate against a pivot mask's junction table,
+     * grouped so it composes with surrounding conditions.
+     */
+    protected function whereFlagPivot(Builder $query, PivotDefinition $definition, mixed $flags, string $mode, string $boolean): Builder
+    {
+        $ids = FlagSet::from($flags, $definition->enum)->ids();
+        $ownerColumn = $query->qualifyColumn($definition->ownerKey);
+
+        $correlated = function ($sub) use ($definition, $ownerColumn) {
+            $sub->from($definition->table)
+                ->whereColumn($definition->table . '.' . $definition->foreignPivotKey, $ownerColumn);
+
+            return $sub;
+        };
+
+        switch ($mode) {
+            case 'any':
+                // EXISTS a row whose flag is one of the given ids (empty => matches none).
+                return $query->whereExists(function ($sub) use ($correlated, $definition, $ids) {
+                    $correlated($sub)->whereIn($definition->table . '.' . $definition->flagKey, $ids);
+                }, $boolean);
+
+            case 'missing':
+                // No row whose flag is one of the given ids (empty => matches all).
+                return $query->whereExists(function ($sub) use ($correlated, $definition, $ids) {
+                    $correlated($sub)->whereIn($definition->table . '.' . $definition->flagKey, $ids);
+                }, $boolean, true);
+
+            case 'has':
+                // Every given flag must have its own row (empty => matches all).
+                return $query->where(function (Builder $group) use ($correlated, $definition, $ids) {
+                    foreach ($ids as $id) {
+                        $group->whereExists(function ($sub) use ($correlated, $definition, $id) {
+                            $correlated($sub)->where($definition->table . '.' . $definition->flagKey, $id);
+                        });
+                    }
+                }, null, null, $boolean);
+
+            case 'equals':
+            default:
+                // Exactly the given set: all present, and none beyond them.
+                return $query->where(function (Builder $group) use ($correlated, $definition, $ids) {
+                    if ($ids === []) {
+                        $group->whereNotExists(function ($sub) use ($correlated) {
+                            $correlated($sub);
+                        });
+
+                        return;
+                    }
+
+                    foreach ($ids as $id) {
+                        $group->whereExists(function ($sub) use ($correlated, $definition, $id) {
+                            $correlated($sub)->where($definition->table . '.' . $definition->flagKey, $id);
+                        });
+                    }
+
+                    $group->whereNotExists(function ($sub) use ($correlated, $definition, $ids) {
+                        $correlated($sub)->whereNotIn($definition->table . '.' . $definition->flagKey, $ids);
+                    });
+                }, null, null, $boolean);
+        }
     }
 
     /**

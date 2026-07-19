@@ -10,6 +10,7 @@ Store dozens of boolean flags in a single integer column (e.g. *"which networks 
 - 🛠 **Value object** — immutable `BitMask` with `has / add / remove / toggle / intersect / diff / names ...`.
 - 📦 **Collections** — the same filters, in-memory, on Eloquent collections or plain collections.
 - 🧵 **Wide masks** — a single logical mask spanning several BIGINT columns, for **more than 63 flags** (e.g. 126 across two columns) without hand-juggling `networks_1` / `networks_2`.
+- 🗃 **Junction (pivot) masks** — the *same* flag API backed by a `(owner, flag_id)` table instead of columns, for **large or dynamic** flag sets — with EXISTS-based scopes and a reverse-lookup index.
 
 ## Requirements
 
@@ -235,8 +236,9 @@ final class Network
 ## Schema helper
 
 ```php
-$table->bitMask('networks');         // = $table->unsignedBigInteger('networks')->default(0)
-$table->wideBitMask('networks', 2);  // networks_1, networks_2 — two BIGINTs, default 0 (see Wide masks)
+$table->bitMask('networks');            // = $table->unsignedBigInteger('networks')->default(0)
+$table->wideBitMask('networks', 2);     // networks_1, networks_2 — two BIGINTs, default 0 (see Wide masks)
+$table->flagPivot('email', 'network_id'); // junction table: flag_id column + composite PK + reverse index (see Junction masks)
 ```
 
 ## Wide masks — more than 63 flags
@@ -307,6 +309,98 @@ grouped clause so they compose with `orWhere*` and your other conditions.
 `WideBitMask` mirrors `BitMask` (`has / hasAny / hasNone / equals / add / remove /
 toggle / clear / bits / flags / names / count`); `->columns()` returns the raw
 per-column integers, and `bits()` returns global indices.
+
+## Junction (pivot) masks — large or dynamic flag sets
+
+When flags are too many even for a wide mask, or you want each membership as its
+own row (easy bulk load, per-flag reverse lookups, `flag_id`s that aren't
+contiguous bit positions), store them in a thin **junction table** —
+`(owner_key, flag_id)`, one row per set flag — instead of mask columns. The
+`flag_id` is the int-backed enum case's *value* (any non-negative integer, not a
+bit position), so the flag count is effectively unbounded.
+
+It's the **same declaration and the same API** — only the storage differs.
+
+**1. Flag enum** (values are arbitrary flag ids):
+
+```php
+enum Network: int
+{
+    case Gmail = 1;
+    case Proton = 100;
+    case Icloud = 250;
+}
+```
+
+**2. Junction table** — the `flagPivot` macro adds the `flag_id` column, the
+composite primary key, and a reverse index (`flag_id, owner`) for
+"which owners carry flag X?":
+
+```php
+Schema::create('email_networks', function (Blueprint $table) {
+    $table->string('email');                    // owner column (its type is yours)
+    $table->flagPivot('email', 'network_id');   // + network_id, PK & reverse index
+});
+```
+
+**3. Declare it on the model** with a `pivot` key. `foreignPivotKey`, `flagKey`
+and `ownerKey` are optional — they default to the model's foreign key, `flag_id`,
+and the model's primary key:
+
+```php
+class Email extends Model
+{
+    use HasBitMasks;
+
+    protected $bitMasks = [
+        'networks' => [
+            'pivot' => 'email_networks',
+            'enum'  => Network::class,
+            'foreignPivotKey' => 'email',   // owner column in the junction table
+            'flagKey'         => 'network_id',
+            'ownerKey'        => 'email',    // local key it references
+        ],
+    ];
+}
+```
+
+**4. Same API — the value is now a `FlagSet`:**
+
+```php
+$email->networks = [Network::Gmail, Network::Proton]; // buffered…
+$email->save();                                       // …flushed to the junction table
+
+$email->networks;                              // FlagSet instance
+$email->networks->names();                     // ['Gmail', 'Proton']
+$email->hasMask('networks', Network::Icloud);  // false
+$email->addMask('networks', Network::Icloud)->save();
+
+Email::whereMaskHas('networks', Network::Gmail)->get();
+Email::whereMaskHasAny('networks', [Network::Proton, Network::Icloud])->get();
+```
+
+Notes:
+
+- **Mutations flush on `->save()`** (same contract as the column strategies) — the
+  pivot rows are reconciled to the buffered set. A flush needs the owner key, so
+  save the model at least once. Deleting the model purges its junction rows.
+- **Scopes** emit correlated `EXISTS` / `NOT EXISTS` subqueries: `whereMaskHas` is
+  an `EXISTS` per flag, `whereMaskHasAny` an `EXISTS … flag_id IN (…)`,
+  `whereMaskMissing` its `NOT EXISTS`, and `whereMaskEquals` an exact match. All
+  four (and their `orWhere*` twins) compose with your other conditions.
+- `FlagSet` mirrors `BitMask` (`has / hasAny / hasNone / equals / add / remove /
+  toggle / clear / flags / names / count`); `->ids()` returns the raw flag ids.
+
+## Choosing a storage strategy
+
+| Flags | Strategy | Declaration |
+|---|---|---|
+| ≤ 63 | single column | `'networks' => Network::class` |
+| 64 – a few hundred | wide mask | `'networks' => ['columns' => N, 'enum' => …]` |
+| many / dynamic / bulk-loaded | junction table | `'networks' => ['pivot' => 'table', 'enum' => …]` |
+
+Bitmask columns keep every flag in the row (one-row point lookups, no joins);
+junction tables trade that for unbounded, individually-indexable flags.
 
 ## Limits & querying at scale
 
