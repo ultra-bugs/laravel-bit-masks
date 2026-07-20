@@ -26,6 +26,7 @@ use RuntimeException;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Zuko\BitMasks\Console\MakeBitMaskCommand;
+use Zuko\BitMasks\Console\ModuleMakeBitMaskCommand;
 
 /**
  * Tests the --module option on make:bitmask, covering module namespace
@@ -171,6 +172,85 @@ class MakeBitMaskModuleTest extends TestCase
     }
 
     #[Test]
+    public function module_reads_namespace_from_composer_json_psr4(): void
+    {
+        $modulePath = $this->tempDir . '/modules/Core';
+        mkdir($modulePath, 0755, true);
+        $this->writeModuleComposer($modulePath, 'MyLink\\Cerm\\Core\\', 'app/');
+
+        $app = $this->makeApp();
+        $app->instance('modules', new FakeModuleRepository([
+            'core' => new FakeModule('Core', $modulePath),
+        ]));
+
+        $exitCode = $this->runCommand($app, [
+            'name' => 'Permissions',
+            '--flags' => 'read,write',
+            '--module' => 'Core',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $generatedFile = $modulePath . '/app/BitMasks/Permissions.php';
+        $this->assertFileExists($generatedFile);
+
+        $source = file_get_contents($generatedFile);
+        $this->assertStringContainsString('namespace MyLink\\Cerm\\Core\\BitMasks;', $source);
+    }
+
+    #[Test]
+    public function module_reads_source_dir_from_composer_json_psr4(): void
+    {
+        $modulePath = $this->tempDir . '/modules/PostModule';
+        mkdir($modulePath, 0755, true);
+        $this->writeModuleComposer($modulePath, 'Vendor\\CRM\\PostModule\\', 'src/');
+
+        $app = $this->makeApp([
+            'modules.paths.app_folder' => 'app',
+        ]);
+        $app->instance('modules', new FakeModuleRepository([
+            'postmodule' => new FakeModule('PostModule', $modulePath),
+        ]));
+
+        $exitCode = $this->runCommand($app, [
+            'name' => 'Status',
+            '--flags' => 'draft,published',
+            '--module' => 'PostModule',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $generatedFile = $modulePath . '/src/BitMasks/Status.php';
+        $this->assertFileExists($generatedFile);
+
+        $source = file_get_contents($generatedFile);
+        $this->assertStringContainsString('namespace Vendor\\CRM\\PostModule\\BitMasks;', $source);
+    }
+
+    #[Test]
+    public function module_falls_back_to_config_when_no_composer_json(): void
+    {
+        $modulePath = $this->tempDir . '/Modules/Simple';
+        mkdir($modulePath, 0755, true);
+
+        $app = $this->makeApp();
+        $app->instance('modules', new FakeModuleRepository([
+            'simple' => new FakeModule('Simple', $modulePath),
+        ]));
+
+        $exitCode = $this->runCommand($app, [
+            'name' => 'Flags',
+            '--flags' => 'on,off',
+            '--module' => 'Simple',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $source = file_get_contents($modulePath . '/app/BitMasks/Flags.php');
+        $this->assertStringContainsString('namespace Modules\\Simple\\BitMasks;', $source);
+    }
+
+    #[Test]
     public function explicit_namespace_overrides_module_derived_namespace(): void
     {
         $modulePath = $this->tempDir . '/Modules/Blog';
@@ -218,6 +298,71 @@ class MakeBitMaskModuleTest extends TestCase
         $this->assertFileDoesNotExist($modulePath . '/app/BitMasks/Tags.php');
     }
 
+    // ------- module:make-bitmask bridge command ----------------------------
+
+    #[Test]
+    public function bridge_command_uses_explicit_module_argument(): void
+    {
+        $modulePath = $this->tempDir . '/modules/Blog';
+        mkdir($modulePath, 0755, true);
+        $this->writeModuleComposer($modulePath, 'Zuko\\Fitly\\Blog\\', 'app/');
+
+        $app = $this->makeApp();
+        $app->instance('modules', new FakeModuleRepository([
+            'blog' => new FakeModule('Blog', $modulePath),
+        ]));
+
+        $exitCode = $this->runBridgeCommand($app, [
+            'name' => 'Network',
+            'module' => 'Blog',
+            '--flags' => 'gmail,yahoo',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $source = file_get_contents($modulePath . '/app/BitMasks/Network.php');
+        $this->assertStringContainsString('namespace Zuko\\Fitly\\Blog\\BitMasks;', $source);
+    }
+
+    #[Test]
+    public function bridge_command_falls_back_to_used_module(): void
+    {
+        $modulePath = $this->tempDir . '/modules/Core';
+        mkdir($modulePath, 0755, true);
+        $this->writeModuleComposer($modulePath, 'MyLink\\Cerm\\Core\\', 'app/');
+
+        $app = $this->makeApp();
+        $app->instance('modules', new FakeModuleRepository(
+            modules: ['core' => new FakeModule('Core', $modulePath)],
+            usedNow: 'Core',
+        ));
+
+        $exitCode = $this->runBridgeCommand($app, [
+            'name' => 'Roles',
+            '--flags' => 'admin,editor',
+        ]);
+
+        $this->assertSame(0, $exitCode);
+
+        $source = file_get_contents($modulePath . '/app/BitMasks/Roles.php');
+        $this->assertStringContainsString('namespace MyLink\\Cerm\\Core\\BitMasks;', $source);
+    }
+
+    #[Test]
+    public function bridge_command_throws_without_nwidart(): void
+    {
+        $app = $this->makeApp();
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/nwidart\/laravel-modules/');
+
+        $this->runBridgeCommand($app, [
+            'name' => 'Test',
+            'module' => 'Nope',
+            '--flags' => 'a',
+        ]);
+    }
+
     // ------- Helpers -------------------------------------------------------
 
     private function makeApp(array $config = []): FakeApp
@@ -238,7 +383,16 @@ class MakeBitMaskModuleTest extends TestCase
 
     private function runCommand(Container $app, array $params): int
     {
-        $command = new MakeBitMaskCommand;
+        return $this->executeCommand(new MakeBitMaskCommand, $app, $params);
+    }
+
+    private function runBridgeCommand(Container $app, array $params): int
+    {
+        return $this->executeCommand(new ModuleMakeBitMaskCommand, $app, $params);
+    }
+
+    private function executeCommand(MakeBitMaskCommand $command, Container $app, array $params): int
+    {
         $command->setLaravel($app);
 
         $input = new ArrayInput($params, $command->getDefinition());
@@ -246,6 +400,18 @@ class MakeBitMaskModuleTest extends TestCase
         $output = new OutputStyle($input, new BufferedOutput);
 
         return $command->run($input, $output);
+    }
+
+    private function writeModuleComposer(string $modulePath, string $namespace, string $srcDir): void
+    {
+        file_put_contents($modulePath . '/composer.json', json_encode([
+            'autoload' => [
+                'psr-4' => [
+                    $namespace => $srcDir,
+                    $namespace . 'Database\\Factories\\' => 'database/factories/',
+                ],
+            ],
+        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT));
     }
 
     private function dotToNested(array $config): array
@@ -350,14 +516,33 @@ class FakeConfig
  */
 class FakeModuleRepository
 {
-    /** @param array<string, FakeModule> $modules keyed by lowercase name */
-    public function __construct(private readonly array $modules)
-    {
+    /**
+     * @param  array<string, FakeModule>  $modules  keyed by lowercase name
+     * @param  string|null  $usedNow  the module name returned by getUsedNow() (simulates module:use)
+     */
+    public function __construct(
+        private readonly array $modules,
+        private readonly ?string $usedNow = null,
+    ) {
     }
 
     public function find(string $name): ?FakeModule
     {
         return $this->modules[strtolower($name)] ?? null;
+    }
+
+    public function findOrFail(string $name): FakeModule
+    {
+        return $this->find($name) ?? throw new InvalidArgumentException(sprintf('Module [%s] not found.', $name));
+    }
+
+    public function getUsedNow(): string
+    {
+        if ($this->usedNow === null) {
+            throw new \RuntimeException('No module is currently used. Run module:use first.');
+        }
+
+        return $this->usedNow;
     }
 }
 

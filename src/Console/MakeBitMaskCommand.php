@@ -192,7 +192,60 @@ class MakeBitMaskCommand extends Command
     }
 
     /**
-     * Namespace inside a module: {modules.namespace}\{Module}\{sub-namespace}.
+     * Resolve the module's root namespace and source directory from its
+     * composer.json PSR-4 autoload, falling back to the nwidart config
+     * when no composer.json exists.
+     *
+     * This is the smarter approach: each module's composer.json is the
+     * source of truth for its namespace — e.g. a module at modules/Core
+     * may map `MyLink\Cerm\Core\` → `app/`, which has nothing to do
+     * with the global `modules.namespace` config value.
+     *
+     * @return array{namespace: string, path: string}
+     */
+    protected function resolveModuleAutoload(object $module): array
+    {
+        $composerPath = $module->getPath() . '/composer.json';
+
+        if (is_file($composerPath)) {
+            $composer = json_decode((string) file_get_contents($composerPath), true);
+            $psr4 = $composer['autoload']['psr-4'] ?? [];
+
+            $appFolder = rtrim((string) $this->laravel['config']->get('modules.paths.app_folder', 'app'), '/');
+
+            foreach ($psr4 as $namespace => $path) {
+                if (rtrim((string) $path, '/') === $appFolder) {
+                    return [
+                        'namespace' => rtrim($namespace, '\\'),
+                        'path' => $appFolder,
+                    ];
+                }
+            }
+
+            foreach ($psr4 as $namespace => $path) {
+                if (! str_contains($namespace, 'Database\\') && ! str_contains($namespace, 'Tests\\')) {
+                    return [
+                        'namespace' => rtrim($namespace, '\\'),
+                        'path' => rtrim((string) $path, '/'),
+                    ];
+                }
+            }
+        }
+
+        $moduleNs = rtrim((string) $this->laravel['config']->get('modules.namespace', 'Modules'), '\\');
+        $appFolder = rtrim((string) $this->laravel['config']->get('modules.paths.app_folder', 'app'), '/');
+
+        return [
+            'namespace' => $moduleNs . '\\' . $module->getStudlyName(),
+            'path' => $appFolder,
+        ];
+    }
+
+    /**
+     * Namespace inside a module: {module_root_namespace}\{sub-namespace}.
+     *
+     * The root namespace comes from the module's composer.json PSR-4 mapping
+     * (e.g. `MyLink\Cerm\Core`), NOT the global modules.namespace config.
      *
      * The sub-namespace is derived from the generator config by stripping its
      * first segment (typically "App"), so `App\BitMasks` → `BitMasks` and
@@ -201,25 +254,25 @@ class MakeBitMaskCommand extends Command
     protected function moduleNamespace(): string
     {
         $module = $this->resolveModule();
-        $moduleNs = rtrim((string) $this->laravel['config']->get('modules.namespace', 'Modules'), '\\');
+        $autoload = $this->resolveModuleAutoload($module);
         $subNs = $this->generatorSubNamespace();
 
-        return $moduleNs . '\\' . $module->getStudlyName() . '\\' . $subNs;
+        return $autoload['namespace'] . '\\' . $subNs;
     }
 
     /**
-     * Directory inside a module: {module_path}/{app_folder}/{sub-path}.
+     * Directory inside a module: {module_path}/{source_dir}/{sub-path}.
      *
-     * The sub-path is derived from the generator config by stripping its first
-     * segment (typically "app"), so `app/BitMasks` → `BitMasks`.
+     * The source directory comes from the module's composer.json PSR-4 mapping
+     * (may be `app`, `src`, etc.), NOT assumed from the global app_folder config.
      */
     protected function moduleDirectory(): string
     {
         $module = $this->resolveModule();
-        $appFolder = rtrim((string) $this->laravel['config']->get('modules.paths.app_folder', 'app'), '/');
+        $autoload = $this->resolveModuleAutoload($module);
         $subPath = $this->generatorSubPath();
 
-        return $module->getExtraPath($appFolder . '/' . $subPath);
+        return $module->getExtraPath($autoload['path'] . '/' . $subPath);
     }
 
     protected function generatorSubNamespace(): string

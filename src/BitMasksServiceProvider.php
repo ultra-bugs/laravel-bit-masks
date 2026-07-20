@@ -22,6 +22,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Collection;
 use Illuminate\Support\ServiceProvider;
 use Zuko\BitMasks\Console\MakeBitMaskCommand;
+use Zuko\BitMasks\Console\ModuleMakeBitMaskCommand;
 
 /**
  * Registers the make:bitmask command, collection macros for in-memory mask
@@ -47,9 +48,13 @@ class BitMasksServiceProvider extends ServiceProvider
                 __DIR__ . '/../config/bit-masks.php' => $this->app->configPath('bit-masks.php'),
             ], 'bit-masks-config');
 
-            $this->commands([
-                MakeBitMaskCommand::class,
-            ]);
+            $commands = [MakeBitMaskCommand::class];
+
+            if ($this->app->bound('modules')) {
+                $commands[] = ModuleMakeBitMaskCommand::class;
+            }
+
+            $this->commands($commands);
         }
     }
 

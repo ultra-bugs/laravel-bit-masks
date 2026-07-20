@@ -274,15 +274,22 @@ Names are normalized into identifiers (`yahoo mail` → `YahooMail` / `YAHOO_MAI
 
 ### Modular structure (nwidart/laravel-modules)
 
-When your application uses [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), pass `--module` to generate inside a module:
+When your application uses [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), there are two ways to generate inside a module:
 
 ```bash
+# Option 1: --module on make:bitmask
 php artisan make:bitmask Network --flags="gmail,yahoo" --module=Blog
-# → Modules/Blog/app/BitMasks/Network.php
-# → namespace Modules\Blog\BitMasks
+
+# Option 2: module:make-bitmask (nwidart-style bridge command)
+php artisan module:use Blog
+php artisan module:make-bitmask Network --flags="gmail,yahoo"
+# or pass the module explicitly:
+php artisan module:make-bitmask Network Blog --flags="gmail,yahoo"
 ```
 
-The generator reads `modules.namespace` and `modules.paths.app_folder` from the nwidart config, so custom module layouts are respected automatically. Explicit `--namespace` or `--path` still override the module-derived values.
+The `module:make-bitmask` command follows the nwidart convention: module is an optional positional argument that falls back to `module:use`'s stored module.
+
+The generator reads the module's own `composer.json` PSR-4 autoload to determine the correct namespace and source directory — so modules with custom namespaces (e.g. `MyLink\Cerm\Core\` mapping to `app/`, or `Vendor\CRM\Post\` mapping to `src/`) work correctly. Falls back to `modules.namespace` + `modules.paths.app_folder` from the nwidart config when no `composer.json` exists. Explicit `--namespace` or `--path` still override the module-derived values.
 
 `--type=constants` produces a plain class for codebases that prefer constants:
 
@@ -491,10 +498,12 @@ still overrides its config value per invocation:
 ],
 ```
 
-When `--module` is used, the sub-namespace and sub-path are derived from these
-values by stripping the first segment (e.g. `App\BitMasks` → `BitMasks`). So
-changing `namespace` to `App\Enums\Flags` means modules will generate into
-`Modules\{Name}\Enums\Flags`.
+When `--module` is used, the module's root namespace comes from its own
+`composer.json` PSR-4 autoload (not the global config). The sub-namespace
+(`BitMasks`) is derived from these values by stripping the first segment
+(e.g. `App\BitMasks` → `BitMasks`), and appended to the module's root.
+So changing `namespace` to `App\Enums\Flags` means modules will generate
+into `{ModuleNamespace}\Enums\Flags`.
 
 ## Testing
 

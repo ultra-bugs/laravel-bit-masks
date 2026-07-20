@@ -275,15 +275,22 @@ publish (xem [Cấu hình](#cấu-hình)) trước khi rơi về mặc định c
 
 ### Cấu trúc module (nwidart/laravel-modules)
 
-Khi ứng dụng của bạn sử dụng [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), truyền `--module` để tạo file bên trong module:
+Khi ứng dụng của bạn sử dụng [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), có hai cách để tạo file bên trong module:
 
 ```bash
+# Cách 1: --module trên make:bitmask
 php artisan make:bitmask Network --flags="gmail,yahoo" --module=Blog
-# → Modules/Blog/app/BitMasks/Network.php
-# → namespace Modules\Blog\BitMasks
+
+# Cách 2: module:make-bitmask (bridge command theo phong cách nwidart)
+php artisan module:use Blog
+php artisan module:make-bitmask Network --flags="gmail,yahoo"
+# hoặc truyền module trực tiếp:
+php artisan module:make-bitmask Network Blog --flags="gmail,yahoo"
 ```
 
-Generator đọc `modules.namespace` và `modules.paths.app_folder` từ config nwidart, nên các layout module tùy chỉnh được tự động tuân thủ. `--namespace` hoặc `--path` truyền trực tiếp vẫn ghi đè giá trị được suy ra từ module.
+Lệnh `module:make-bitmask` tuân thủ quy ước nwidart: module là argument tùy chọn, tự động fallback về module đã set bởi `module:use`.
+
+Generator đọc PSR-4 autoload từ `composer.json` riêng của module để xác định namespace và thư mục source chính xác — nên các module với namespace tùy chỉnh (ví dụ: `MyLink\Cerm\Core\` mapping tới `app/`, hay `Vendor\CRM\Post\` mapping tới `src/`) đều hoạt động đúng. Fallback về `modules.namespace` + `modules.paths.app_folder` từ config nwidart khi không có `composer.json`. `--namespace` hoặc `--path` truyền trực tiếp vẫn ghi đè giá trị được suy ra từ module.
 
 `--type=constants` tạo ra class thuần cho các codebase ưa thích constants:
 
@@ -492,10 +499,11 @@ php artisan vendor:publish --tag=bit-masks-config
 ],
 ```
 
-Khi dùng `--module`, sub-namespace và sub-path được suy ra từ các giá trị trên
-bằng cách bỏ phân đoạn đầu tiên (ví dụ: `App\BitMasks` → `BitMasks`). Vì vậy
-nếu đổi `namespace` thành `App\Enums\Flags` thì modules sẽ tạo vào
-`Modules\{Name}\Enums\Flags`.
+Khi dùng `--module`, root namespace được đọc từ `composer.json` PSR-4 autoload
+của module (không phải config global). Sub-namespace (`BitMasks`) được suy ra
+từ các giá trị trên bằng cách bỏ phân đoạn đầu tiên (ví dụ: `App\BitMasks` →
+`BitMasks`), và nối vào root namespace của module. Vì vậy nếu đổi `namespace`
+thành `App\Enums\Flags` thì modules sẽ tạo vào `{ModuleNamespace}\Enums\Flags`.
 
 ## Testing
 
