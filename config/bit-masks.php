@@ -27,6 +27,18 @@ return [
     | Every option still overrides its config value per invocation, e.g.
     | `make:bitmask Network --namespace="Modules\Core\BitMasks"`.
     |
+    | Module support: when --module=<Name> is passed (requires
+    | nwidart/laravel-modules), the generator reads modules.namespace and
+    | modules.paths.app_folder from the nwidart config and places the file
+    | inside the module:
+    |
+    |   Namespace: {modules.namespace}\{Module}\BitMasks
+    |   Path:      Modules/{Module}/{app_folder}/BitMasks/
+    |
+    | The "BitMasks" sub-path is derived from the values below — changing
+    | namespace/path here changes the module sub-path too (the first segment
+    | is stripped: App\Enums\Flags → Enums\Flags inside the module).
+    |
     */
 
     'generator' => [

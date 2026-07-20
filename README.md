@@ -262,6 +262,7 @@ php artisan make:bitmask {name}
     {--type=enum}     # "enum" (default) or "constants"
     {--namespace=}    # default: App\BitMasks
     {--path=}         # default: app/BitMasks
+    {--module=}       # generate inside a nwidart/laravel-modules module
     {--start=0}       # bit position of the first flag
     {--force}         # overwrite existing file
 ```
@@ -270,6 +271,18 @@ Names are normalized into identifiers (`yahoo mail` → `YahooMail` / `YAHOO_MAI
 
 `--namespace`, `--path` and `--type` fall back to the published config (see
 [Configuration](#configuration)) before the built-in defaults.
+
+### Modular structure (nwidart/laravel-modules)
+
+When your application uses [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), pass `--module` to generate inside a module:
+
+```bash
+php artisan make:bitmask Network --flags="gmail,yahoo" --module=Blog
+# → Modules/Blog/app/BitMasks/Network.php
+# → namespace Modules\Blog\BitMasks
+```
+
+The generator reads `modules.namespace` and `modules.paths.app_folder` from the nwidart config, so custom module layouts are respected automatically. Explicit `--namespace` or `--path` still override the module-derived values.
 
 `--type=constants` produces a plain class for codebases that prefer constants:
 
@@ -477,6 +490,11 @@ still overrides its config value per invocation:
     'type'      => 'enum',          // --type: 'enum' or 'constants'
 ],
 ```
+
+When `--module` is used, the sub-namespace and sub-path are derived from these
+values by stripping the first segment (e.g. `App\BitMasks` → `BitMasks`). So
+changing `namespace` to `App\Enums\Flags` means modules will generate into
+`Modules\{Name}\Enums\Flags`.
 
 ## Testing
 

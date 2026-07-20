@@ -263,6 +263,7 @@ php artisan make:bitmask {name}
     {--type=enum}     # "enum" (mặc định) hoặc "constants"
     {--namespace=}    # mặc định: App\BitMasks
     {--path=}         # mặc định: app/BitMasks
+    {--module=}       # tạo bên trong module nwidart/laravel-modules
     {--start=0}       # vị trí bit của flag đầu tiên
     {--force}         # ghi đè file hiện có
 ```
@@ -271,6 +272,18 @@ Tên được chuẩn hóa thành identifiers (`yahoo mail` → `YahooMail` / `Y
 
 `--namespace`, `--path` và `--type` khi bỏ trống sẽ lấy giá trị từ config đã
 publish (xem [Cấu hình](#cấu-hình)) trước khi rơi về mặc định có sẵn.
+
+### Cấu trúc module (nwidart/laravel-modules)
+
+Khi ứng dụng của bạn sử dụng [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), truyền `--module` để tạo file bên trong module:
+
+```bash
+php artisan make:bitmask Network --flags="gmail,yahoo" --module=Blog
+# → Modules/Blog/app/BitMasks/Network.php
+# → namespace Modules\Blog\BitMasks
+```
+
+Generator đọc `modules.namespace` và `modules.paths.app_folder` từ config nwidart, nên các layout module tùy chỉnh được tự động tuân thủ. `--namespace` hoặc `--path` truyền trực tiếp vẫn ghi đè giá trị được suy ra từ module.
 
 `--type=constants` tạo ra class thuần cho các codebase ưa thích constants:
 
@@ -478,6 +491,11 @@ php artisan vendor:publish --tag=bit-masks-config
     'type'      => 'enum',          // --type: 'enum' hoặc 'constants'
 ],
 ```
+
+Khi dùng `--module`, sub-namespace và sub-path được suy ra từ các giá trị trên
+bằng cách bỏ phân đoạn đầu tiên (ví dụ: `App\BitMasks` → `BitMasks`). Vì vậy
+nếu đổi `namespace` thành `App\Enums\Flags` thì modules sẽ tạo vào
+`Modules\{Name}\Enums\Flags`.
 
 ## Testing
 
