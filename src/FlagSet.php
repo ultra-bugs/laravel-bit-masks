@@ -23,6 +23,7 @@ use Countable;
 use InvalidArgumentException;
 use JsonSerializable;
 use LogicException;
+use Zuko\BitMasks\Support\FlagName;
 
 /**
  * Immutable set of flag ids — the value object behind the junction-table
@@ -62,7 +63,7 @@ final class FlagSet implements Countable, JsonSerializable
     {
         $ids = [];
 
-        self::accumulate($flags, $ids);
+        self::accumulate($flags, $ids, $enum);
 
         ksort($ids);
 
@@ -80,9 +81,12 @@ final class FlagSet implements Countable, JsonSerializable
     }
 
     /**
-     * Resolve any flag-ish value to a single flag id.
+     * Resolve any flag-ish value to a single flag id. Flag NAMES resolve too
+     * when a flag enum is given.
+     *
+     * @param  class-string<BackedEnum>|null  $enum
      */
-    public static function resolveId(mixed $flag): int
+    public static function resolveId(mixed $flag, ?string $enum = null): int
     {
         if ($flag instanceof BackedEnum) {
             if (! is_int($flag->value)) {
@@ -100,8 +104,16 @@ final class FlagSet implements Countable, JsonSerializable
             return $flag;
         }
 
-        if (is_string($flag) && ctype_digit($flag)) {
-            return (int) $flag;
+        if (is_string($flag)) {
+            if (ctype_digit($flag)) {
+                return (int) $flag;
+            }
+
+            if ($enum !== null) {
+                return self::resolveId(FlagName::resolve($enum, $flag));
+            }
+
+            throw new InvalidArgumentException(sprintf('Cannot resolve flag name [%s]: no flag enum is bound or provided.', $flag));
         }
 
         throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into a flag id.', get_debug_type($flag)));
@@ -140,7 +152,7 @@ final class FlagSet implements Countable, JsonSerializable
      */
     public function has(mixed ...$flags): bool
     {
-        foreach (self::from($flags)->ids as $id) {
+        foreach (self::from($flags, $this->enum)->ids as $id) {
             if (! in_array($id, $this->ids, true)) {
                 return false;
             }
@@ -154,7 +166,7 @@ final class FlagSet implements Countable, JsonSerializable
      */
     public function hasAny(mixed ...$flags): bool
     {
-        foreach (self::from($flags)->ids as $id) {
+        foreach (self::from($flags, $this->enum)->ids as $id) {
             if (in_array($id, $this->ids, true)) {
                 return true;
             }
@@ -176,7 +188,7 @@ final class FlagSet implements Countable, JsonSerializable
      */
     public function equals(mixed $flags): bool
     {
-        return $this->ids === self::from($flags)->ids;
+        return $this->ids === self::from($flags, $this->enum)->ids;
     }
 
     /**
@@ -184,7 +196,7 @@ final class FlagSet implements Countable, JsonSerializable
      */
     public function add(mixed ...$flags): self
     {
-        return new self($this->merged(array_merge($this->ids, self::from($flags)->ids)), $this->enum);
+        return new self($this->merged(array_merge($this->ids, self::from($flags, $this->enum)->ids)), $this->enum);
     }
 
     /**
@@ -192,7 +204,7 @@ final class FlagSet implements Countable, JsonSerializable
      */
     public function remove(mixed ...$flags): self
     {
-        $remove = self::from($flags)->ids;
+        $remove = self::from($flags, $this->enum)->ids;
 
         return new self(array_values(array_filter($this->ids, static fn (int $id) => ! in_array($id, $remove, true))), $this->enum);
     }
@@ -204,7 +216,7 @@ final class FlagSet implements Countable, JsonSerializable
     {
         $ids = $this->ids;
 
-        foreach (self::from($flags)->ids as $id) {
+        foreach (self::from($flags, $this->enum)->ids as $id) {
             $key = array_search($id, $ids, true);
 
             if ($key === false) {
@@ -304,7 +316,7 @@ final class FlagSet implements Countable, JsonSerializable
     /**
      * @param  array<int, bool>  $ids  used as a set: id => true
      */
-    private static function accumulate(mixed $flags, array &$ids): void
+    private static function accumulate(mixed $flags, array &$ids, ?string $enum = null): void
     {
         if ($flags === null) {
             return;
@@ -318,15 +330,15 @@ final class FlagSet implements Countable, JsonSerializable
             return;
         }
 
-        if ($flags instanceof BackedEnum || is_int($flags) || (is_string($flags) && ctype_digit($flags))) {
-            $ids[self::resolveId($flags)] = true;
+        if ($flags instanceof BackedEnum || is_int($flags) || is_string($flags)) {
+            $ids[self::resolveId($flags, $enum)] = true;
 
             return;
         }
 
         if (is_iterable($flags)) {
             foreach ($flags as $flag) {
-                self::accumulate($flag, $ids);
+                self::accumulate($flag, $ids, $enum);
             }
 
             return;

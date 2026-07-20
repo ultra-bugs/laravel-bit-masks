@@ -98,7 +98,7 @@ Subscriber::all()->whereMaskHasAny('networks', [Network::Yahoo, Network::Outlook
 
 ## Value object `BitMask`
 
-Bất biến — mọi thao tác biến đổi trả về instance mới. Bất cứ nơi nào chấp nhận *flag*, bạn có thể truyền `int`, một case enum int-backed, một `BitMask` khác, hoặc iterable (có thể lồng nhau) của các kiểu đó.
+Bất biến — mọi thao tác biến đổi trả về instance mới. Bất cứ nơi nào chấp nhận *flag*, bạn có thể truyền `int`, một case enum int-backed, một `BitMask` khác, iterable (có thể lồng nhau) của các kiểu đó — hoặc, khi đã bound flag enum, một **tên** flag dạng string (xem [Tên flag dạng string](#tên-flag-dạng-string)).
 
 ```php
 use Zuko\BitMasks\BitMask;
@@ -133,7 +133,7 @@ $mask = bitmask(5, Network::class);                      // global helper
 | `toBits(): string` | Chuỗi nhị phân, vd `"1010"` |
 | `enum()` / `withEnum($class)` | Đọc / gắn flag enum |
 
-`BitMask::resolve(mixed): int` là normalizer nền tảng — dùng nó khi bạn cần giá trị integer thuần.
+`BitMask::resolve(mixed, ?enum): int` là normalizer nền tảng — dùng nó khi bạn cần giá trị integer thuần. Truyền thêm enum class (tùy chọn) thì tên flag cũng được resolve.
 
 Serialization: `json_encode($mask)` và `(string) $mask` đều trả về giá trị integer.
 
@@ -148,7 +148,44 @@ Network::all();                                // mọi case được set
 Network::fromMask(5);                          // [Network::Gmail, Network::Outlook]
 Network::Gmail->in($subscriber->networks);     // kiểm tra membership
 Network::Yahoo->notIn(0b0101);                 // true
+
+Network::fromName('gmail');                    // Network::Gmail (match linh hoạt)
+Network::tryFromName('telegram');              // null
+Network::valueOf('gmail');                     // 1 — tên thẳng ra int
 ```
+
+## Tên flag dạng string
+
+Khi đã bound flag enum (hoặc truyền enum rõ ràng), **tên** flag dạng string được
+chấp nhận ở bất cứ đâu nhận flags — value objects, model helpers, query scopes và
+collection macros. Match rất linh hoạt: không phân biệt hoa thường, bỏ qua ký tự
+phân cách — `'gmail'`, `'Gmail'`, `'YAHOO_MAIL'` và `'yahoo mail'` đều resolve được.
+
+```php
+$subscriber->addMask('networks', 'outlook')->save();
+$subscriber->hasMask('networks', 'gmail');
+$subscriber->networks = ['gmail', 'hotmail'];
+
+Subscriber::whereMaskHas('networks', 'gmail')->count();
+Subscriber::all()->whereMaskHasAny('networks', ['yahoo', 'outlook']);
+
+Network::mask('gmail', 'yahoo');       // BitMask(3)
+bitmask('gmail', Network::class);      // BitMask(1)
+```
+
+Cho thao tác dữ liệu thô (imports, queues, APIs) — cầu nối trực tiếp string ra int:
+
+```php
+Network::valueOf('gmail');                        // 1
+bitmask_value('gmail', Network::class);           // 1
+bitmask_value(['gmail', 'yahoo'], Network::class); // 3
+bitmask_value('yahoo mail', NetworkConstants::class); // constants classes cũng được
+```
+
+Resolver đứng sau tất cả là `Zuko\BitMasks\Support\FlagName`
+(`resolve` / `tryResolve` / `value` / `tryValue`), dùng standalone được và hiểu cả
+flag enums lẫn class từ `--type=constants`. Chuỗi số (`'5'`) vẫn luôn được resolve
+như giá trị integer thuần, không bao giờ như tên.
 
 ## Tích hợp Eloquent — `HasBitMasks`
 
@@ -226,11 +263,34 @@ php artisan make:bitmask {name}
     {--type=enum}     # "enum" (mặc định) hoặc "constants"
     {--namespace=}    # mặc định: App\BitMasks
     {--path=}         # mặc định: app/BitMasks
+    {--module=}       # tạo bên trong module nwidart/laravel-modules
     {--start=0}       # vị trí bit của flag đầu tiên
     {--force}         # ghi đè file hiện có
 ```
 
 Tên được chuẩn hóa thành identifiers (`yahoo mail` → `YahooMail` / `YAHOO_MAIL`); các bản trùng và tràn >63-bit bị từ chối. `--start` cho phép bạn thêm flags mới vào chuỗi hiện có mà không cần đánh số lại (tạo class thứ hai, hoặc tạo lại với danh sách đầy đủ).
+
+`--namespace`, `--path` và `--type` khi bỏ trống sẽ lấy giá trị từ config đã
+publish (xem [Cấu hình](#cấu-hình)) trước khi rơi về mặc định có sẵn.
+
+### Cấu trúc module (nwidart/laravel-modules)
+
+Khi ứng dụng của bạn sử dụng [nwidart/laravel-modules](https://github.com/nWidart/laravel-modules), có hai cách để tạo file bên trong module:
+
+```bash
+# Cách 1: --module trên make:bitmask
+php artisan make:bitmask Network --flags="gmail,yahoo" --module=Blog
+
+# Cách 2: module:make-bitmask (bridge command theo phong cách nwidart)
+php artisan module:use Blog
+php artisan module:make-bitmask Network --flags="gmail,yahoo"
+# hoặc truyền module trực tiếp:
+php artisan module:make-bitmask Network Blog --flags="gmail,yahoo"
+```
+
+Lệnh `module:make-bitmask` tuân thủ quy ước nwidart: module là argument tùy chọn, tự động fallback về module đã set bởi `module:use`.
+
+Generator đọc PSR-4 autoload từ `composer.json` riêng của module để xác định namespace và thư mục source chính xác — nên các module với namespace tùy chỉnh (ví dụ: `MyLink\Cerm\Core\` mapping tới `app/`, hay `Vendor\CRM\Post\` mapping tới `src/`) đều hoạt động đúng. Fallback về `modules.namespace` + `modules.paths.app_folder` từ config nwidart khi không có `composer.json`. `--namespace` hoặc `--path` truyền trực tiếp vẫn ghi đè giá trị được suy ra từ module.
 
 `--type=constants` tạo ra class thuần cho các codebase ưa thích constants:
 
@@ -421,6 +481,29 @@ CREATE INDEX idx_subscribers_net_5 ON subscribers (email) WHERE (networks & 32) 
 ```
 
 - Point lookups (`WHERE email = ?`) không bị ảnh hưởng — mask đi cùng trong dòng.
+
+## Cấu hình
+
+```bash
+php artisan vendor:publish --tag=bit-masks-config
+```
+
+`config/bit-masks.php` chứa các giá trị mặc định của generator; mỗi option của
+`make:bitmask` vẫn ghi đè giá trị config theo từng lần chạy:
+
+```php
+'generator' => [
+    'namespace' => 'App\\BitMasks', // --namespace
+    'path'      => 'app/BitMasks',  // --path (tương đối so với base_path())
+    'type'      => 'enum',          // --type: 'enum' hoặc 'constants'
+],
+```
+
+Khi dùng `--module`, root namespace được đọc từ `composer.json` PSR-4 autoload
+của module (không phải config global). Sub-namespace (`BitMasks`) được suy ra
+từ các giá trị trên bằng cách bỏ phân đoạn đầu tiên (ví dụ: `App\BitMasks` →
+`BitMasks`), và nối vào root namespace của module. Vì vậy nếu đổi `namespace`
+thành `App\Enums\Flags` thì modules sẽ tạo vào `{ModuleNamespace}\Enums\Flags`.
 
 ## Testing
 

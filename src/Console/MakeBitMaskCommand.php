@@ -30,6 +30,7 @@ use Zuko\BitMasks\Support\BitMaskClassBuilder;
  *   php artisan make:bitmask Network --flags="gmail,yahoo,outlook"
  *   php artisan make:bitmask Network --from-file=networks.txt --type=constants
  *   php artisan make:bitmask Network --flags=gmail --namespace="Modules\Core\BitMasks" --path=modules/Core/app/BitMasks
+ *   php artisan make:bitmask Network --flags=gmail --module=Blog
  */
 class MakeBitMaskCommand extends Command
 {
@@ -37,9 +38,10 @@ class MakeBitMaskCommand extends Command
         {name : Class name for the generated flags (e.g. NetworkFlags)}
         {--flags= : Comma-separated flag names (e.g. "gmail,yahoo,outlook")}
         {--from-file= : Path to a file containing one flag name per line}
-        {--type=enum : Output type: "enum" (int-backed enum) or "constants" (final class)}
-        {--namespace= : Target namespace (default: App\\BitMasks)}
-        {--path= : Target directory (default: app/BitMasks)}
+        {--type= : Output type: "enum" (int-backed enum) or "constants" (final class)}
+        {--namespace= : Target namespace (default: config bit-masks.generator.namespace)}
+        {--path= : Target directory (default: config bit-masks.generator.path)}
+        {--module= : Generate inside a nwidart/laravel-modules module}
         {--start=0 : Bit position assigned to the first flag}
         {--force : Overwrite the file if it already exists}';
 
@@ -55,10 +57,12 @@ class MakeBitMaskCommand extends Command
             return self::INVALID;
         }
 
+        $type = strtolower((string) ($this->option('type') ?: $this->generatorConfig('type', BitMaskClassBuilder::TYPE_ENUM)));
+
         $builder = new BitMaskClassBuilder(
             class: (string) $this->argument('name'),
-            namespace: trim((string) ($this->option('namespace') ?: 'App\\BitMasks'), '\\'),
-            type: strtolower((string) $this->option('type')),
+            namespace: $this->resolveNamespace(),
+            type: $type,
             flags: $flags,
             startBit: (int) $this->option('start'),
         );
@@ -72,7 +76,7 @@ class MakeBitMaskCommand extends Command
             return self::INVALID;
         }
 
-        $directory = (string) ($this->option('path') ?: $this->laravel->path('BitMasks'));
+        $directory = $this->targetDirectory();
         $path = rtrim($directory, '/\\') . DIRECTORY_SEPARATOR . $class . '.php';
 
         if (file_exists($path) && ! $this->option('force')) {
@@ -88,7 +92,7 @@ class MakeBitMaskCommand extends Command
         file_put_contents($path, $source);
 
         $this->components->info(sprintf('Bitmask %s [%s] created successfully (%d flags, bits %d..%d).',
-            $this->option('type'),
+            $type,
             $path,
             count($flags),
             (int) $this->option('start'),
@@ -96,6 +100,195 @@ class MakeBitMaskCommand extends Command
         ));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * A generator default from config/bit-masks.php, when the option is omitted.
+     */
+    protected function generatorConfig(string $key, ?string $default = null): ?string
+    {
+        $value = $this->laravel['config']->get('bit-masks.generator.' . $key, $default);
+
+        return $value === null ? null : (string) $value;
+    }
+
+    /**
+     * Resolve the target namespace.
+     *
+     * Priority: explicit --namespace > --module derived > config > hardcoded default.
+     */
+    protected function resolveNamespace(): string
+    {
+        if ($explicit = $this->option('namespace')) {
+            return trim((string) $explicit, '\\');
+        }
+
+        if ($this->option('module')) {
+            return $this->moduleNamespace();
+        }
+
+        return trim((string) $this->generatorConfig('namespace', 'App\\BitMasks'), '\\');
+    }
+
+    /**
+     * The directory generated files are written to.
+     *
+     * Priority: explicit --path > --module derived > config > app/BitMasks.
+     */
+    protected function targetDirectory(): string
+    {
+        if ($explicit = $this->option('path')) {
+            return $this->resolveAbsolutePath((string) $explicit);
+        }
+
+        if ($this->option('module')) {
+            return $this->moduleDirectory();
+        }
+
+        $directory = (string) $this->generatorConfig('path', '');
+
+        if ($directory === '') {
+            return $this->laravel->path('BitMasks');
+        }
+
+        return $this->resolveAbsolutePath($directory);
+    }
+
+    protected function resolveAbsolutePath(string $directory): string
+    {
+        $isAbsolute = str_starts_with($directory, '/')
+            || str_starts_with($directory, '\\')
+            || preg_match('/^[A-Za-z]:[\/\\\\]/', $directory) === 1;
+
+        return $isAbsolute ? $directory : $this->laravel->basePath($directory);
+    }
+
+    // ---- Module support (nwidart/laravel-modules) -------------------------
+
+    /**
+     * Resolve the nwidart Module instance for the --module option.
+     *
+     * @throws \RuntimeException           when nwidart/laravel-modules is not installed
+     * @throws InvalidArgumentException    when the named module does not exist
+     */
+    protected function resolveModule(): object
+    {
+        $name = (string) $this->option('module');
+
+        if (! $this->laravel->bound('modules')) {
+            throw new \RuntimeException(
+                'The --module option requires nwidart/laravel-modules. '
+                . 'Install it with: composer require nwidart/laravel-modules'
+            );
+        }
+
+        $module = $this->laravel['modules']->find($name);
+
+        if ($module === null) {
+            throw new InvalidArgumentException(sprintf('Module [%s] not found.', $name));
+        }
+
+        return $module;
+    }
+
+    /**
+     * Resolve the module's root namespace and source directory from its
+     * composer.json PSR-4 autoload, falling back to the nwidart config
+     * when no composer.json exists.
+     *
+     * This is the smarter approach: each module's composer.json is the
+     * source of truth for its namespace — e.g. a module at modules/Core
+     * may map `MyLink\Cerm\Core\` → `app/`, which has nothing to do
+     * with the global `modules.namespace` config value.
+     *
+     * @return array{namespace: string, path: string}
+     */
+    protected function resolveModuleAutoload(object $module): array
+    {
+        $composerPath = $module->getPath() . '/composer.json';
+
+        if (is_file($composerPath)) {
+            $composer = json_decode((string) file_get_contents($composerPath), true);
+            $psr4 = $composer['autoload']['psr-4'] ?? [];
+
+            $appFolder = rtrim((string) $this->laravel['config']->get('modules.paths.app_folder', 'app'), '/');
+
+            foreach ($psr4 as $namespace => $path) {
+                if (rtrim((string) $path, '/') === $appFolder) {
+                    return [
+                        'namespace' => rtrim($namespace, '\\'),
+                        'path' => $appFolder,
+                    ];
+                }
+            }
+
+            foreach ($psr4 as $namespace => $path) {
+                if (! str_contains($namespace, 'Database\\') && ! str_contains($namespace, 'Tests\\')) {
+                    return [
+                        'namespace' => rtrim($namespace, '\\'),
+                        'path' => rtrim((string) $path, '/'),
+                    ];
+                }
+            }
+        }
+
+        $moduleNs = rtrim((string) $this->laravel['config']->get('modules.namespace', 'Modules'), '\\');
+        $appFolder = rtrim((string) $this->laravel['config']->get('modules.paths.app_folder', 'app'), '/');
+
+        return [
+            'namespace' => $moduleNs . '\\' . $module->getStudlyName(),
+            'path' => $appFolder,
+        ];
+    }
+
+    /**
+     * Namespace inside a module: {module_root_namespace}\{sub-namespace}.
+     *
+     * The root namespace comes from the module's composer.json PSR-4 mapping
+     * (e.g. `MyLink\Cerm\Core`), NOT the global modules.namespace config.
+     *
+     * The sub-namespace is derived from the generator config by stripping its
+     * first segment (typically "App"), so `App\BitMasks` → `BitMasks` and
+     * `App\Enums\Flags` → `Enums\Flags`.
+     */
+    protected function moduleNamespace(): string
+    {
+        $module = $this->resolveModule();
+        $autoload = $this->resolveModuleAutoload($module);
+        $subNs = $this->generatorSubNamespace();
+
+        return $autoload['namespace'] . '\\' . $subNs;
+    }
+
+    /**
+     * Directory inside a module: {module_path}/{source_dir}/{sub-path}.
+     *
+     * The source directory comes from the module's composer.json PSR-4 mapping
+     * (may be `app`, `src`, etc.), NOT assumed from the global app_folder config.
+     */
+    protected function moduleDirectory(): string
+    {
+        $module = $this->resolveModule();
+        $autoload = $this->resolveModuleAutoload($module);
+        $subPath = $this->generatorSubPath();
+
+        return $module->getExtraPath($autoload['path'] . '/' . $subPath);
+    }
+
+    protected function generatorSubNamespace(): string
+    {
+        $namespace = (string) $this->generatorConfig('namespace', 'App\\BitMasks');
+        $pos = strpos($namespace, '\\');
+
+        return $pos !== false ? substr($namespace, $pos + 1) : 'BitMasks';
+    }
+
+    protected function generatorSubPath(): string
+    {
+        $path = str_replace('\\', '/', (string) $this->generatorConfig('path', 'app/BitMasks'));
+        $pos = strpos($path, '/');
+
+        return $pos !== false ? substr($path, $pos + 1) : 'BitMasks';
     }
 
     /**
