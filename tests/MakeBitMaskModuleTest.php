@@ -9,20 +9,18 @@
  *          M         M  `88888P'  dP   `YP  `88888P'
  *          MMMMMMMMMMM    -*-  Created by Zuko  -*-
  *
- *          * * * * * * * * * * * * * * * * * * * * * * *
+ *          * * * * * * * * * * * * * * * * * * * * *
  *          * -    - -   F.R.E.E.M.I.N.D   - -    - *
  *          * -  Copyright © 2026 (Z) Programing  - *
  *          *    -  -  All Rights Reserved  -  -    *
- *          * * * * * * * * * * * * * * * * * * * * * * *
+ *          * * * * * * * * * * * * * * * * * * * * *
  */
 
 namespace Zuko\BitMasks\Tests;
 
 use Illuminate\Console\OutputStyle;
 use Illuminate\Container\Container;
-use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
-use RuntimeException;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Zuko\BitMasks\Console\MakeBitMaskCommand;
@@ -59,7 +57,7 @@ class MakeBitMaskModuleTest extends TestCase
     {
         $app = $this->makeApp();
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/nwidart\/laravel-modules/');
 
         $this->runCommand($app, [
@@ -75,7 +73,7 @@ class MakeBitMaskModuleTest extends TestCase
         $app = $this->makeApp();
         $app->instance('modules', new FakeModuleRepository([]));
 
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/Module \[Ghost\] not found/');
 
         $this->runCommand($app, [
@@ -353,7 +351,7 @@ class MakeBitMaskModuleTest extends TestCase
     {
         $app = $this->makeApp();
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessageMatches('/nwidart\/laravel-modules/');
 
         $this->runBridgeCommand($app, [
@@ -533,7 +531,7 @@ class FakeModuleRepository
 
     public function findOrFail(string $name): FakeModule
     {
-        return $this->find($name) ?? throw new InvalidArgumentException(sprintf('Module [%s] not found.', $name));
+        return $this->find($name) ?? throw new \InvalidArgumentException(sprintf('Module [%s] not found.', $name));
     }
 
     public function getUsedNow(): string

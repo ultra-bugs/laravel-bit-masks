@@ -18,8 +18,6 @@
 
 namespace Zuko\BitMasks\Console;
 
-use InvalidArgumentException;
-
 /**
  * Bridge command for nwidart/laravel-modules.
  *
@@ -70,7 +68,7 @@ class ModuleMakeBitMaskCommand extends MakeBitMaskCommand
         $module = $this->laravel['modules']->find($name);
 
         if ($module === null) {
-            throw new InvalidArgumentException(sprintf('Module [%s] not found.', $name));
+            throw new \InvalidArgumentException(sprintf('Module [%s] not found.', $name));
         }
 
         return $module->getStudlyName();

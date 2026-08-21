@@ -18,7 +18,6 @@
 
 namespace Zuko\BitMasks\Casts;
 
-use BackedEnum;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Contracts\Database\Eloquent\SerializesCastableAttributes;
 use Illuminate\Database\Eloquent\Model;
@@ -41,7 +40,7 @@ use Zuko\BitMasks\BitMask;
 class AsBitMask implements CastsAttributes, SerializesCastableAttributes
 {
     /**
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public function __construct(protected ?string $enum = null)
     {
@@ -50,7 +49,7 @@ class AsBitMask implements CastsAttributes, SerializesCastableAttributes
     /**
      * Cast definition string binding the given flag enum.
      *
-     * @param  class-string<BackedEnum>  $enum
+     * @param  class-string<\BackedEnum>  $enum
      */
     public static function using(string $enum): string
     {

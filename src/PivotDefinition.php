@@ -18,8 +18,6 @@
 
 namespace Zuko\BitMasks;
 
-use BackedEnum;
-
 /**
  * Describes a junction-table ("pivot") backed flag set: a thin
  * `(foreignPivotKey, flagKey)` table holding one row per set flag, where
@@ -37,7 +35,7 @@ final class PivotDefinition
      * @param  string  $foreignPivotKey  owner-key column in the junction table
      * @param  string  $flagKey  flag-id column in the junction table
      * @param  string  $ownerKey  local key on the owning model that $foreignPivotKey references
-     * @param  class-string<BackedEnum>|null  $enum  bound flag enum (flag id = case value)
+     * @param  class-string<\BackedEnum>|null  $enum  bound flag enum (flag id = case value)
      */
     public function __construct(
         public readonly string $name,

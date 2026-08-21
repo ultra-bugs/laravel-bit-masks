@@ -18,11 +18,6 @@
 
 namespace Zuko\BitMasks;
 
-use BackedEnum;
-use Countable;
-use JsonSerializable;
-use LogicException;
-
 /**
  * Immutable value object for a logical bitmask that spans multiple BIGINT
  * columns (see {@see WideMaskDefinition}).
@@ -32,9 +27,9 @@ use LogicException;
  * addressed by GLOBAL INDEX, and the value is kept decomposed across columns
  * so it can exceed a single 64-bit integer.
  *
- * @implements Countable
+ * @implements \Countable
  */
-final class WideBitMask implements Countable, JsonSerializable
+final class WideBitMask implements \Countable, \JsonSerializable
 {
     /**
      * @param  array<string, int>  $columns  per-column values, keyed by column name in definition order
@@ -217,7 +212,7 @@ final class WideBitMask implements Countable, JsonSerializable
      * Enum cases contained in this mask when an enum is bound, otherwise the
      * raw global indices.
      *
-     * @return list<BackedEnum>|list<int>
+     * @return list<\BackedEnum>|list<int>
      */
     public function flags(): array
     {
@@ -241,15 +236,15 @@ final class WideBitMask implements Countable, JsonSerializable
      *
      * @return list<string>
      *
-     * @throws LogicException when no flag enum is bound
+     * @throws \LogicException when no flag enum is bound
      */
     public function names(): array
     {
         if ($this->definition->enum === null) {
-            throw new LogicException('Cannot resolve flag names: no flag enum is bound to this wide mask.');
+            throw new \LogicException('Cannot resolve flag names: no flag enum is bound to this wide mask.');
         }
 
-        return array_map(static fn (BackedEnum $case) => $case->name, $this->flags());
+        return array_map(static fn (\BackedEnum $case) => $case->name, $this->flags());
     }
 
     /**
@@ -269,7 +264,7 @@ final class WideBitMask implements Countable, JsonSerializable
     /**
      * The set flags as an array — enum cases when bound, indices otherwise.
      *
-     * @return list<BackedEnum>|list<int>
+     * @return list<\BackedEnum>|list<int>
      */
     public function toArray(): array
     {

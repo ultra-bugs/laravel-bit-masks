@@ -18,16 +18,11 @@
 
 namespace Zuko\BitMasks;
 
-use BackedEnum;
-use Countable;
-use InvalidArgumentException;
-use JsonSerializable;
-use LogicException;
 use Zuko\BitMasks\Support\FlagName;
 
 /**
  * Immutable set of flag ids — the value object behind the junction-table
- * ("pivot") storage strategy (see {@see \Zuko\BitMasks\PivotDefinition}).
+ * ("pivot") storage strategy (see {@see PivotDefinition}).
  *
  * Where {@see BitMask} packs flags into one integer's bits and {@see WideBitMask}
  * spreads them across columns, a FlagSet is just a set of ids stored one row per
@@ -39,13 +34,13 @@ use Zuko\BitMasks\Support\FlagName;
  * clear returning fresh instances), so a model can switch storage strategy
  * without callers changing.
  *
- * @implements Countable
+ * @implements \Countable
  */
-final class FlagSet implements Countable, JsonSerializable
+final class FlagSet implements \Countable, \JsonSerializable
 {
     /**
      * @param  list<int>  $ids  sorted, unique flag ids
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     private function __construct(
         private readonly array $ids,
@@ -57,7 +52,7 @@ final class FlagSet implements Countable, JsonSerializable
      * Build a set from any flag-ish value (ids, int-backed enum cases, other
      * FlagSet instances, or iterables of those). null yields an empty set.
      *
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public static function from(mixed $flags, ?string $enum = null): self
     {
@@ -73,7 +68,7 @@ final class FlagSet implements Countable, JsonSerializable
     /**
      * An empty set, optionally bound to a flag enum.
      *
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public static function none(?string $enum = null): self
     {
@@ -84,13 +79,13 @@ final class FlagSet implements Countable, JsonSerializable
      * Resolve any flag-ish value to a single flag id. Flag NAMES resolve too
      * when a flag enum is given.
      *
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public static function resolveId(mixed $flag, ?string $enum = null): int
     {
-        if ($flag instanceof BackedEnum) {
+        if ($flag instanceof \BackedEnum) {
             if (! is_int($flag->value)) {
-                throw new InvalidArgumentException(sprintf('[%s] is a string-backed enum. Flag ids must be int-backed.', $flag::class));
+                throw new \InvalidArgumentException(sprintf('[%s] is a string-backed enum. Flag ids must be int-backed.', $flag::class));
             }
 
             return $flag->value;
@@ -98,7 +93,7 @@ final class FlagSet implements Countable, JsonSerializable
 
         if (is_int($flag)) {
             if ($flag < 0) {
-                throw new InvalidArgumentException('Flag ids must be non-negative integers.');
+                throw new \InvalidArgumentException('Flag ids must be non-negative integers.');
             }
 
             return $flag;
@@ -113,10 +108,10 @@ final class FlagSet implements Countable, JsonSerializable
                 return self::resolveId(FlagName::resolve($enum, $flag));
             }
 
-            throw new InvalidArgumentException(sprintf('Cannot resolve flag name [%s]: no flag enum is bound or provided.', $flag));
+            throw new \InvalidArgumentException(sprintf('Cannot resolve flag name [%s]: no flag enum is bound or provided.', $flag));
         }
 
-        throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into a flag id.', get_debug_type($flag)));
+        throw new \InvalidArgumentException(sprintf('Cannot resolve [%s] into a flag id.', get_debug_type($flag)));
     }
 
     /**
@@ -132,7 +127,7 @@ final class FlagSet implements Countable, JsonSerializable
     /**
      * The bound flag enum, if any.
      *
-     * @return class-string<BackedEnum>|null
+     * @return class-string<\BackedEnum>|null
      */
     public function enum(): ?string
     {
@@ -240,7 +235,7 @@ final class FlagSet implements Countable, JsonSerializable
     /**
      * Enum cases in the set when an enum is bound, otherwise the raw ids.
      *
-     * @return list<BackedEnum>|list<int>
+     * @return list<\BackedEnum>|list<int>
      */
     public function flags(): array
     {
@@ -264,15 +259,15 @@ final class FlagSet implements Countable, JsonSerializable
      *
      * @return list<string>
      *
-     * @throws LogicException when no flag enum is bound
+     * @throws \LogicException when no flag enum is bound
      */
     public function names(): array
     {
         if ($this->enum === null) {
-            throw new LogicException('Cannot resolve flag names: no flag enum is bound to this FlagSet.');
+            throw new \LogicException('Cannot resolve flag names: no flag enum is bound to this FlagSet.');
         }
 
-        return array_map(static fn (BackedEnum $case) => $case->name, $this->flags());
+        return array_map(static fn (\BackedEnum $case) => $case->name, $this->flags());
     }
 
     /**
@@ -286,7 +281,7 @@ final class FlagSet implements Countable, JsonSerializable
     /**
      * The set as an array — enum cases when bound, ids otherwise.
      *
-     * @return list<BackedEnum>|list<int>
+     * @return list<\BackedEnum>|list<int>
      */
     public function toArray(): array
     {
@@ -330,7 +325,7 @@ final class FlagSet implements Countable, JsonSerializable
             return;
         }
 
-        if ($flags instanceof BackedEnum || is_int($flags) || is_string($flags)) {
+        if ($flags instanceof \BackedEnum || is_int($flags) || is_string($flags)) {
             $ids[self::resolveId($flags, $enum)] = true;
 
             return;
@@ -344,6 +339,6 @@ final class FlagSet implements Countable, JsonSerializable
             return;
         }
 
-        throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into flag ids.', get_debug_type($flags)));
+        throw new \InvalidArgumentException(sprintf('Cannot resolve [%s] into flag ids.', get_debug_type($flags)));
     }
 }

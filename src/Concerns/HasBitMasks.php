@@ -18,8 +18,8 @@
 
 namespace Zuko\BitMasks\Concerns;
 
-use BackedEnum;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
 use Zuko\BitMasks\BitMask;
 use Zuko\BitMasks\Casts\AsBitMask;
@@ -54,14 +54,14 @@ use Zuko\BitMasks\WideMaskDefinition;
  * ->save() too, so the "mutate then ->save()" contract holds across strategies
  * (a pivot flush needs the owner key, so save the model at least once first).
  *
- * @mixin \Illuminate\Database\Eloquent\Model
+ * @mixin Model
  */
 trait HasBitMasks
 {
     /**
      * Per-class cache of parsed definitions.
      *
-     * @var array<class-string, array{single: array<string, class-string<BackedEnum>|null>, wide: array<string, WideMaskDefinition>, pivot: array<string, PivotDefinition>}>
+     * @var array<class-string, array{single: array<string, class-string<\BackedEnum>|null>, wide: array<string, WideMaskDefinition>, pivot: array<string, PivotDefinition>}>
      */
     protected static array $bitMaskDefinitions = [];
 
@@ -136,7 +136,7 @@ trait HasBitMasks
     /**
      * Normalized map of declared single-column masks: ['column' => enum-class|null].
      *
-     * @return array<string, class-string<BackedEnum>|null>
+     * @return array<string, class-string<\BackedEnum>|null>
      */
     public function bitMaskColumns(): array
     {
@@ -198,7 +198,7 @@ trait HasBitMasks
     /**
      * Parse and cache the model's `$bitMasks` declaration once per class.
      *
-     * @return array{single: array<string, class-string<BackedEnum>|null>, wide: array<string, WideMaskDefinition>, pivot: array<string, PivotDefinition>}
+     * @return array{single: array<string, class-string<\BackedEnum>|null>, wide: array<string, WideMaskDefinition>, pivot: array<string, PivotDefinition>}
      */
     protected function parsedBitMaskDefinitions(): array
     {
@@ -277,7 +277,7 @@ trait HasBitMasks
     /**
      * The flag enum bound to the given mask (single, wide or pivot), if any.
      *
-     * @return class-string<BackedEnum>|null
+     * @return class-string<\BackedEnum>|null
      */
     public function bitMaskEnum(string $column): ?string
     {

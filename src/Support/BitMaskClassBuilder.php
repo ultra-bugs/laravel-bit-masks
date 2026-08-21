@@ -19,7 +19,6 @@
 namespace Zuko\BitMasks\Support;
 
 use Illuminate\Support\Str;
-use InvalidArgumentException;
 use Zuko\BitMasks\BitMask;
 
 /**
@@ -56,7 +55,7 @@ final class BitMaskClassBuilder
         $class = Str::studly(trim($this->class));
 
         if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $class)) {
-            throw new InvalidArgumentException(sprintf('[%s] is not a valid class name.', $this->class));
+            throw new \InvalidArgumentException(sprintf('[%s] is not a valid class name.', $this->class));
         }
 
         return $class;
@@ -72,17 +71,17 @@ final class BitMaskClassBuilder
         $names = $this->normalizedFlagNames();
 
         if ($names === []) {
-            throw new InvalidArgumentException('At least one flag name is required.');
+            throw new \InvalidArgumentException('At least one flag name is required.');
         }
 
         if ($this->startBit < 0 || $this->startBit > BitMask::MAX_BIT) {
-            throw new InvalidArgumentException(sprintf('Start bit must be between 0 and %d.', BitMask::MAX_BIT));
+            throw new \InvalidArgumentException(sprintf('Start bit must be between 0 and %d.', BitMask::MAX_BIT));
         }
 
         $lastBit = $this->startBit + count($names) - 1;
 
         if ($lastBit > BitMask::MAX_BIT) {
-            throw new InvalidArgumentException(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 '%d flags starting at bit %d would exceed bit %d (the safe limit for a signed 64-bit integer). Consider splitting into multiple mask columns.',
                 count($names),
                 $this->startBit,
@@ -93,7 +92,7 @@ final class BitMaskClassBuilder
         return match ($this->type) {
             self::TYPE_ENUM => $this->buildEnum($namespace, $class, $names),
             self::TYPE_CONSTANTS => $this->buildConstants($namespace, $class, $names),
-            default => throw new InvalidArgumentException(sprintf('Unknown type [%s]. Supported types: enum, constants.', $this->type)),
+            default => throw new \InvalidArgumentException(sprintf('Unknown type [%s]. Supported types: enum, constants.', $this->type)),
         };
     }
 
@@ -168,7 +167,7 @@ PHP;
         $namespace = trim($this->namespace, '\\');
 
         if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\\\\[A-Za-z_][A-Za-z0-9_]*)*$/', $namespace)) {
-            throw new InvalidArgumentException(sprintf('[%s] is not a valid namespace.', $this->namespace));
+            throw new \InvalidArgumentException(sprintf('[%s] is not a valid namespace.', $this->namespace));
         }
 
         return $namespace;
@@ -195,7 +194,7 @@ PHP;
             $words = trim(preg_replace('/[^A-Za-z0-9]+/', ' ', $label));
 
             if ($words === '') {
-                throw new InvalidArgumentException(sprintf('Cannot derive an identifier from flag name [%s].', $label));
+                throw new \InvalidArgumentException(sprintf('Cannot derive an identifier from flag name [%s].', $label));
             }
 
             $name = $this->type === self::TYPE_CONSTANTS
@@ -207,7 +206,7 @@ PHP;
             }
 
             if (isset($seen[strtolower($name)])) {
-                throw new InvalidArgumentException(sprintf('Flag name [%s] collides with another flag as identifier [%s].', $label, $name));
+                throw new \InvalidArgumentException(sprintf('Flag name [%s] collides with another flag as identifier [%s].', $label, $name));
             }
 
             $seen[strtolower($name)] = true;

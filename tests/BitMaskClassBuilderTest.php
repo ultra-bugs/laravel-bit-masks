@@ -1,8 +1,22 @@
 <?php
+/*
+ *          M""""""""`M            dP
+ *          Mmmmmm   .M            88
+ *          MMMMP  .MMM  dP    dP  88  .dP   .d8888b.
+ *          MMP  .MMMMM  88    88  88888"    88'  `88
+ *          M' .MMMMMMM  88.  .88  88  `8b.  88.  .88
+ *          M         M  `88888P'  dP   `YP  `88888P'
+ *          MMMMMMMMMMM    -*-  Created by Zuko  -*-
+ *
+ *          * * * * * * * * * * * * * * * * * * * * *
+ *          * -    - -   F.R.E.E.M.I.N.D   - -    - *
+ *          * -  Copyright © 2026 (Z) Programing  - *
+ *          *    -  -  All Rights Reserved  -  -    *
+ *          * * * * * * * * * * * * * * * * * * * * *
+ */
 
 namespace Zuko\BitMasks\Tests;
 
-use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use Zuko\BitMasks\Support\BitMaskClassBuilder;
 
@@ -66,7 +80,7 @@ class BitMaskClassBuilderTest extends TestCase
     #[Test]
     public function it_rejects_flag_counts_exceeding_the_bit_limit(): void
     {
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/exceed bit 62/');
 
         (new BitMaskClassBuilder(
@@ -78,7 +92,7 @@ class BitMaskClassBuilderTest extends TestCase
     #[Test]
     public function it_rejects_duplicate_identifiers(): void
     {
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/collides/');
 
         (new BitMaskClassBuilder(class: 'Dupes', flags: ['gmail', 'g-mail']))->build();
@@ -90,11 +104,11 @@ class BitMaskClassBuilderTest extends TestCase
         try {
             (new BitMaskClassBuilder(class: 'EmptyFlags'))->build();
             $this->fail('Expected exception for empty flag list.');
-        } catch (InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException $e) {
             $this->assertStringContainsString('At least one flag', $e->getMessage());
         }
 
-        $this->expectException(InvalidArgumentException::class);
+        $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/Unknown type/');
 
         (new BitMaskClassBuilder(class: 'BadType', type: 'interface', flags: ['a']))->build();

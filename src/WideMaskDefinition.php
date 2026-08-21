@@ -18,8 +18,6 @@
 
 namespace Zuko\BitMasks;
 
-use BackedEnum;
-use InvalidArgumentException;
 use Zuko\BitMasks\Support\FlagName;
 
 /**
@@ -43,7 +41,7 @@ final class WideMaskDefinition
     /**
      * @param  string  $name  logical attribute name exposed on the model
      * @param  list<string>  $columns  ordered storage column names
-     * @param  class-string<BackedEnum>|null  $enum  bound flag enum, if any
+     * @param  class-string<\BackedEnum>|null  $enum  bound flag enum, if any
      * @param  int  $bitsPerColumn  usable bits per column (63 = bit 63 reserved for sign)
      */
     public function __construct(
@@ -53,11 +51,11 @@ final class WideMaskDefinition
         public readonly int $bitsPerColumn = BitMask::MAX_BIT + 1,
     ) {
         if ($this->columns === []) {
-            throw new InvalidArgumentException(sprintf('Wide mask [%s] must declare at least one storage column.', $name));
+            throw new \InvalidArgumentException(sprintf('Wide mask [%s] must declare at least one storage column.', $name));
         }
 
         if ($this->bitsPerColumn < 1 || $this->bitsPerColumn > BitMask::MAX_BIT + 1) {
-            throw new InvalidArgumentException(sprintf('bitsPerColumn for wide mask [%s] must be between 1 and %d.', $name, BitMask::MAX_BIT + 1));
+            throw new \InvalidArgumentException(sprintf('bitsPerColumn for wide mask [%s] must be between 1 and %d.', $name, BitMask::MAX_BIT + 1));
         }
     }
 
@@ -95,13 +93,13 @@ final class WideMaskDefinition
     public function route(int $index): array
     {
         if ($index < 0) {
-            throw new InvalidArgumentException('Flag index must be a non-negative integer.');
+            throw new \InvalidArgumentException('Flag index must be a non-negative integer.');
         }
 
         $columnIndex = intdiv($index, $this->bitsPerColumn);
 
         if ($columnIndex >= count($this->columns)) {
-            throw new InvalidArgumentException(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Flag index %d exceeds the capacity of wide mask [%s] (%d flags across %d columns).',
                 $index,
                 $this->name,
@@ -123,9 +121,9 @@ final class WideMaskDefinition
      */
     public function flagIndex(mixed $flag): int
     {
-        if ($flag instanceof BackedEnum) {
+        if ($flag instanceof \BackedEnum) {
             if (! is_int($flag->value)) {
-                throw new InvalidArgumentException(sprintf('[%s] is a string-backed enum. Wide-mask flags must be int-backed.', $flag::class));
+                throw new \InvalidArgumentException(sprintf('[%s] is a string-backed enum. Wide-mask flags must be int-backed.', $flag::class));
             }
 
             return $flag->value;
@@ -133,7 +131,7 @@ final class WideMaskDefinition
 
         if (is_int($flag)) {
             if ($flag < 0) {
-                throw new InvalidArgumentException('Flag index must be a non-negative integer.');
+                throw new \InvalidArgumentException('Flag index must be a non-negative integer.');
             }
 
             return $flag;
@@ -148,10 +146,10 @@ final class WideMaskDefinition
                 return $this->flagIndex(FlagName::resolve($this->enum, $flag));
             }
 
-            throw new InvalidArgumentException(sprintf('Cannot resolve flag name [%s] on wide mask [%s]: no flag enum is bound.', $flag, $this->name));
+            throw new \InvalidArgumentException(sprintf('Cannot resolve flag name [%s] on wide mask [%s]: no flag enum is bound.', $flag, $this->name));
         }
 
-        throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into a wide-mask flag index.', get_debug_type($flag)));
+        throw new \InvalidArgumentException(sprintf('Cannot resolve [%s] into a wide-mask flag index.', get_debug_type($flag)));
     }
 
     /**
@@ -194,7 +192,7 @@ final class WideMaskDefinition
             return;
         }
 
-        if ($flags instanceof BackedEnum || is_int($flags) || is_string($flags)) {
+        if ($flags instanceof \BackedEnum || is_int($flags) || is_string($flags)) {
             [$column, $bit] = $this->route($this->flagIndex($flags));
             $columns[$column] |= $bit;
 
@@ -209,6 +207,6 @@ final class WideMaskDefinition
             return;
         }
 
-        throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into wide-mask flags.', get_debug_type($flags)));
+        throw new \InvalidArgumentException(sprintf('Cannot resolve [%s] into wide-mask flags.', get_debug_type($flags)));
     }
 }

@@ -17,6 +17,7 @@
  */
 
 use Zuko\BitMasks\BitMask;
+use Zuko\BitMasks\Support\FlagName;
 
 if (! function_exists('bitmask')) {
     /**
@@ -53,7 +54,7 @@ if (! function_exists('bitmask_value')) {
     function bitmask_value(mixed $flags, ?string $class = null): int
     {
         if (is_string($flags) && ! ctype_digit($flags) && $class !== null && ! is_subclass_of($class, BackedEnum::class)) {
-            return \Zuko\BitMasks\Support\FlagName::value($class, $flags);
+            return FlagName::value($class, $flags);
         }
 
         return BitMask::from($flags, $class)->value();

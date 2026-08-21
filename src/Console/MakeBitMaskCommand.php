@@ -19,7 +19,6 @@
 namespace Zuko\BitMasks\Console;
 
 use Illuminate\Console\Command;
-use InvalidArgumentException;
 use Zuko\BitMasks\Support\BitMaskClassBuilder;
 
 /**
@@ -70,7 +69,7 @@ class MakeBitMaskCommand extends Command
         try {
             $source = $builder->build();
             $class = $builder->className();
-        } catch (InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException $e) {
             $this->components->error($e->getMessage());
 
             return self::INVALID;
@@ -168,8 +167,8 @@ class MakeBitMaskCommand extends Command
     /**
      * Resolve the nwidart Module instance for the --module option.
      *
-     * @throws \RuntimeException           when nwidart/laravel-modules is not installed
-     * @throws InvalidArgumentException    when the named module does not exist
+     * @throws \RuntimeException when nwidart/laravel-modules is not installed
+     * @throws \InvalidArgumentException when the named module does not exist
      */
     protected function resolveModule(): object
     {
@@ -185,7 +184,7 @@ class MakeBitMaskCommand extends Command
         $module = $this->laravel['modules']->find($name);
 
         if ($module === null) {
-            throw new InvalidArgumentException(sprintf('Module [%s] not found.', $name));
+            throw new \InvalidArgumentException(sprintf('Module [%s] not found.', $name));
         }
 
         return $module;

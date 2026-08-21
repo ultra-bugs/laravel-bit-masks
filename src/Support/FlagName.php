@@ -19,8 +19,6 @@
 namespace Zuko\BitMasks\Support;
 
 use BackedEnum;
-use InvalidArgumentException;
-use ReflectionClass;
 
 /**
  * Resolves human-readable flag NAMES back to the flag they identify.
@@ -46,18 +44,18 @@ final class FlagName
      * @param  class-string<T>  $enum
      * @return T
      *
-     * @throws InvalidArgumentException when the name matches no case
+     * @throws \InvalidArgumentException when the name matches no case
      */
-    public static function resolve(string $enum, string $name): BackedEnum
+    public static function resolve(string $enum, string $name): \BackedEnum
     {
         $case = self::tryResolve($enum, $name);
 
         if ($case === null) {
-            throw new InvalidArgumentException(sprintf(
+            throw new \InvalidArgumentException(sprintf(
                 'Unknown flag name [%s] for [%s]. Known flags: %s.',
                 $name,
                 $enum,
-                implode(', ', array_map(static fn (BackedEnum $case) => $case->name, $enum::cases()))
+                implode(', ', array_map(static fn (\BackedEnum $case) => $case->name, $enum::cases()))
             ));
         }
 
@@ -72,10 +70,10 @@ final class FlagName
      * @param  class-string<T>  $enum
      * @return T|null
      */
-    public static function tryResolve(string $enum, string $name): ?BackedEnum
+    public static function tryResolve(string $enum, string $name): ?\BackedEnum
     {
-        if (! is_subclass_of($enum, BackedEnum::class)) {
-            throw new InvalidArgumentException(sprintf('[%s] is not a backed enum.', $enum));
+        if (! is_subclass_of($enum, \BackedEnum::class)) {
+            throw new \InvalidArgumentException(sprintf('[%s] is not a backed enum.', $enum));
         }
 
         foreach ($enum::cases() as $case) {
@@ -104,14 +102,14 @@ final class FlagName
      *
      * @param  class-string  $class
      *
-     * @throws InvalidArgumentException when the name matches no flag
+     * @throws \InvalidArgumentException when the name matches no flag
      */
     public static function value(string $class, string $name): int
     {
         $value = self::tryValue($class, $name);
 
         if ($value === null) {
-            throw new InvalidArgumentException(sprintf('Unknown flag name [%s] for [%s].', $name, $class));
+            throw new \InvalidArgumentException(sprintf('Unknown flag name [%s] for [%s].', $name, $class));
         }
 
         return $value;
@@ -124,7 +122,7 @@ final class FlagName
      */
     public static function tryValue(string $class, string $name): ?int
     {
-        if (is_subclass_of($class, BackedEnum::class)) {
+        if (is_subclass_of($class, \BackedEnum::class)) {
             $case = self::tryResolve($class, $name);
 
             if ($case === null) {
@@ -132,17 +130,17 @@ final class FlagName
             }
 
             if (! is_int($case->value)) {
-                throw new InvalidArgumentException(sprintf('[%s] is a string-backed enum. Bitmask flags must be int-backed.', $class));
+                throw new \InvalidArgumentException(sprintf('[%s] is a string-backed enum. Bitmask flags must be int-backed.', $class));
             }
 
             return $case->value;
         }
 
         if (! class_exists($class)) {
-            throw new InvalidArgumentException(sprintf('[%s] is not a flag enum or constants class.', $class));
+            throw new \InvalidArgumentException(sprintf('[%s] is not a flag enum or constants class.', $class));
         }
 
-        $constants = (new ReflectionClass($class))->getConstants();
+        $constants = (new \ReflectionClass($class))->getConstants();
 
         if (array_key_exists($name, $constants) && is_int($constants[$name])) {
             return $constants[$name];

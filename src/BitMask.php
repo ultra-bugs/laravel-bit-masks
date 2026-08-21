@@ -18,12 +18,6 @@
 
 namespace Zuko\BitMasks;
 
-use BackedEnum;
-use Countable;
-use InvalidArgumentException;
-use JsonSerializable;
-use LogicException;
-use Stringable;
 use Zuko\BitMasks\Support\FlagName;
 
 /**
@@ -36,7 +30,7 @@ use Zuko\BitMasks\Support\FlagName;
  * Optionally an int-backed enum class can be bound to the mask so set bits can
  * be resolved back to named flags via {@see BitMask::flags()} / {@see BitMask::names()}.
  */
-final class BitMask implements Countable, JsonSerializable, Stringable
+final class BitMask implements \Countable, \JsonSerializable, \Stringable
 {
     /**
      * Highest usable bit position (bit 63 is the sign bit of a signed BIGINT).
@@ -55,8 +49,8 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      * When $enum is omitted and the source flags are enum cases (or a BitMask
      * already bound to an enum), the enum class is inherited automatically.
      *
-     * @param  int|BackedEnum|self|iterable|null  $flags
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  int|\BackedEnum|self|iterable|null  $flags
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public static function from(mixed $flags = 0, ?string $enum = null): self
     {
@@ -72,7 +66,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
     /**
      * Create an empty mask.
      *
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public static function none(?string $enum = null): self
     {
@@ -82,7 +76,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
     /**
      * Create a mask with every case of the given enum set.
      *
-     * @param  class-string<BackedEnum>  $enum
+     * @param  class-string<\BackedEnum>  $enum
      */
     public static function all(string $enum): self
     {
@@ -99,7 +93,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      * any of those (OR-combined). When a flag enum is given, flag NAMES
      * ('gmail', 'YAHOO_MAIL', 'yahoo mail') resolve too — see {@see FlagName}.
      *
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public static function resolve(mixed $flags, ?string $enum = null): int
     {
@@ -111,9 +105,9 @@ final class BitMask implements Countable, JsonSerializable, Stringable
             return $flags->value;
         }
 
-        if ($flags instanceof BackedEnum) {
+        if ($flags instanceof \BackedEnum) {
             if (! is_int($flags->value)) {
-                throw new InvalidArgumentException(sprintf('[%s] is a string-backed enum. Bitmask flags must be int-backed.', $flags::class));
+                throw new \InvalidArgumentException(sprintf('[%s] is a string-backed enum. Bitmask flags must be int-backed.', $flags::class));
             }
 
             return self::assertNonNegative($flags->value);
@@ -132,7 +126,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
                 return self::resolve(FlagName::resolve($enum, $flags));
             }
 
-            throw new InvalidArgumentException(sprintf('Cannot resolve flag name [%s]: no flag enum is bound or provided.', $flags));
+            throw new \InvalidArgumentException(sprintf('Cannot resolve flag name [%s]: no flag enum is bound or provided.', $flags));
         }
 
         if (is_iterable($flags)) {
@@ -145,7 +139,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
             return $mask;
         }
 
-        throw new InvalidArgumentException(sprintf('Cannot resolve [%s] into a bitmask value.', get_debug_type($flags)));
+        throw new \InvalidArgumentException(sprintf('Cannot resolve [%s] into a bitmask value.', get_debug_type($flags)));
     }
 
     /**
@@ -159,7 +153,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
     /**
      * The enum class bound to this mask, if any.
      *
-     * @return class-string<BackedEnum>|null
+     * @return class-string<\BackedEnum>|null
      */
     public function enum(): ?string
     {
@@ -169,7 +163,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
     /**
      * Return a copy of this mask bound to the given flag enum.
      *
-     * @param  class-string<BackedEnum>|null  $enum
+     * @param  class-string<\BackedEnum>|null  $enum
      */
     public function withEnum(?string $enum): self
     {
@@ -310,7 +304,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      * Enum cases contained in this mask when an enum is bound,
      * otherwise the raw power-of-two values.
      *
-     * @return list<BackedEnum>|list<int>
+     * @return list<\BackedEnum>|list<int>
      */
     public function flags(): array
     {
@@ -334,15 +328,15 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      *
      * @return list<string>
      *
-     * @throws LogicException when no flag enum is bound
+     * @throws \LogicException when no flag enum is bound
      */
     public function names(): array
     {
         if ($this->enum === null) {
-            throw new LogicException('Cannot resolve flag names: no flag enum is bound to this BitMask.');
+            throw new \LogicException('Cannot resolve flag names: no flag enum is bound to this BitMask.');
         }
 
-        return array_map(static fn (BackedEnum $case) => $case->name, $this->flags());
+        return array_map(static fn (\BackedEnum $case) => $case->name, $this->flags());
     }
 
     /**
@@ -356,7 +350,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
     /**
      * The set flags as an array — enum cases when bound, ints otherwise.
      *
-     * @return list<BackedEnum>|list<int>
+     * @return list<\BackedEnum>|list<int>
      */
     public function toArray(): array
     {
@@ -390,7 +384,7 @@ final class BitMask implements Countable, JsonSerializable, Stringable
             return $flags->enum;
         }
 
-        if ($flags instanceof BackedEnum) {
+        if ($flags instanceof \BackedEnum) {
             return $flags::class;
         }
 
@@ -410,21 +404,21 @@ final class BitMask implements Countable, JsonSerializable, Stringable
      */
     private static function assertFlagEnum(string $enum): void
     {
-        if (! is_subclass_of($enum, BackedEnum::class)) {
-            throw new InvalidArgumentException(sprintf('[%s] is not a backed enum and cannot be used as a flag enum.', $enum));
+        if (! is_subclass_of($enum, \BackedEnum::class)) {
+            throw new \InvalidArgumentException(sprintf('[%s] is not a backed enum and cannot be used as a flag enum.', $enum));
         }
 
         $case = $enum::cases()[0] ?? null;
 
         if ($case !== null && ! is_int($case->value)) {
-            throw new InvalidArgumentException(sprintf('[%s] must be an int-backed enum to be used as a flag enum.', $enum));
+            throw new \InvalidArgumentException(sprintf('[%s] must be an int-backed enum to be used as a flag enum.', $enum));
         }
     }
 
     private static function assertNonNegative(int $value): int
     {
         if ($value < 0) {
-            throw new InvalidArgumentException('Bitmask values must be non-negative integers.');
+            throw new \InvalidArgumentException('Bitmask values must be non-negative integers.');
         }
 
         return $value;
